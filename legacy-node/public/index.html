@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ServerDashboard</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="bg-gradient"></div>
+    <main class="page">
+      <section id="loginSection" class="panel auth-panel">
+        <h1>ServerDashboard</h1>
+        <p>Monitor WordPress plugins, website traffic, and EC2 patch status.</p>
+        <form id="loginForm">
+          <label>Email</label>
+          <input type="email" id="email" value="admin@example.com" required />
+          <label>Password</label>
+          <input type="password" id="password" value="Admin#12345" required />
+          <button type="submit">Login</button>
+        </form>
+        <p id="loginError" class="error"></p>
+      </section>
+
+      <section id="dashboardSection" class="hidden">
+        <header class="topbar panel">
+          <div>
+            <h2>Monitoring Dashboard</h2>
+            <p id="userLabel"></p>
+          </div>
+          <div class="actions">
+            <button id="syncEc2Btn">Sync EC2 Updates</button>
+            <button id="refreshBtn">Refresh</button>
+            <button id="logoutBtn" class="secondary">Logout</button>
+          </div>
+        </header>
+
+        <section class="meters">
+          <article class="meter panel">
+            <h3>Traffic (24h)</h3>
+            <strong id="meterTraffic">0</strong>
+          </article>
+          <article class="meter panel">
+            <h3>Outdated WP Plugins</h3>
+            <strong id="meterPlugins">0</strong>
+          </article>
+          <article class="meter panel">
+            <h3>EC2 Missing Patches</h3>
+            <strong id="meterEc2">0</strong>
+          </article>
+        </section>
+
+        <section class="charts-and-tables">
+          <article class="panel chart-panel">
+            <h3>Website Traffic Trend</h3>
+            <canvas id="trafficChart"></canvas>
+          </article>
+
+          <article class="panel table-panel">
+            <h3>WordPress Plugin Updates</h3>
+            <div class="table-wrap">
+              <table id="wpTable">
+                <thead>
+                  <tr>
+                    <th>Site</th>
+                    <th>Plugin</th>
+                    <th>Current</th>
+                    <th>Latest</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel table-panel">
+            <h3>EC2 Patch Status</h3>
+            <div class="table-wrap">
+              <table id="ec2Table">
+                <thead>
+                  <tr>
+                    <th>Instance</th>
+                    <th>ID</th>
+                    <th>Missing</th>
+                    <th>Installed</th>
+                    <th>Failed</th>
+                    <th>Reboot</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
