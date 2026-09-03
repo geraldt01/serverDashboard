@@ -30,6 +30,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/wordpress-sites', [WordpressSiteController::class, 'store'])->middleware('role:admin')->name('wordpress-sites.store');
     Route::post('/wordpress-sites/{wordpressSite}/rotate-token', [WordpressSiteController::class, 'rotateToken'])->middleware('role:admin')->name('wordpress-sites.rotate-token');
     Route::post('/wordpress-sites/{wordpressSite}/toggle-active', [WordpressSiteController::class, 'toggleActive'])->middleware('role:admin')->name('wordpress-sites.toggle-active');
+    Route::post('/wordpress-sites/{wordpressSite}/whitelist', [WordpressSiteController::class, 'updateWhitelist'])->middleware('role:admin')->name('wordpress-sites.update-whitelist');
 });
 
 Route::post('/ingest/wordpress/site/{wordpressSite:slug}', [WordpressSiteController::class, 'report'])

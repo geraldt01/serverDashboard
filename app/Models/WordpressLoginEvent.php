@@ -14,12 +14,14 @@ class WordpressLoginEvent extends Model
         'site_name',
         'username',
         'ip_address',
+        'is_authorized',
         'user_agent',
         'logged_in_at',
     ];
 
     protected $casts = [
         'logged_in_at' => 'datetime',
+        'is_authorized' => 'boolean',
     ];
 
     public function wordpressSite()

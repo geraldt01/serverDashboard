@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Models\WordpressCoreUpdate;
 use App\Models\WordpressLoginEvent;
 use App\Models\WordpressPluginUpdate;
 use App\Models\WordpressSite;
+use App\Notifications\UnauthorizedWordpressLoginNotification;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 
 class WordpressSiteController extends Controller
@@ -64,6 +67,17 @@ class WordpressSiteController extends Controller
         $state = $wordpressSite->is_active ? 'enabled' : 'disabled';
 
         return redirect()->route('wordpress-sites.index')->with('status', "WordPress reporting for {$wordpressSite->name} is {$state}.");
+    }
+
+    public function updateWhitelist(Request $request, WordpressSite $wordpressSite)
+    {
+        $validated = $request->validate([
+            'ip_whitelist' => ['nullable', 'string', 'max:4000'],
+        ]);
+
+        $wordpressSite->update(['ip_whitelist' => $validated['ip_whitelist'] ?? null]);
+
+        return redirect()->route('wordpress-sites.index')->with('status', "IP whitelist for {$wordpressSite->name} was updated.");
     }
 
     public function report(Request $request, WordpressSite $wordpressSite)
@@ -129,14 +143,27 @@ class WordpressSiteController extends Controller
             'loggedInAt' => ['nullable', 'date'],
         ]);
 
-        WordpressLoginEvent::create([
+        $isWhitelisted = $wordpressSite->whitelistedIps() === []
+            ? null
+            : $wordpressSite->isIpWhitelisted($validated['ipAddress']);
+
+        $loginEvent = WordpressLoginEvent::create([
             'wordpress_site_id' => $wordpressSite->id,
             'site_name' => $wordpressSite->name,
             'username' => $validated['username'],
             'ip_address' => $validated['ipAddress'],
+            'is_authorized' => $isWhitelisted,
             'user_agent' => $validated['userAgent'] ?? null,
             'logged_in_at' => $validated['loggedInAt'] ?? now(),
         ]);
+
+        if ($isWhitelisted === false) {
+            $admins = User::query()->where('role', 'admin')->get();
+
+            if ($admins->isNotEmpty()) {
+                Notification::send($admins, new UnauthorizedWordpressLoginNotification($loginEvent));
+            }
+        }
 
         return response()->json(['message' => 'WordPress login event saved.'], 201);
     }

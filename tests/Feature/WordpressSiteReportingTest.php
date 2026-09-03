@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\User;
 use App\Models\WordpressCoreUpdate;
 use App\Models\WordpressLoginEvent;
 use App\Models\WordpressPluginUpdate;
 use App\Models\WordpressSite;
+use App\Notifications\UnauthorizedWordpressLoginNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
 class WordpressSiteReportingTest extends TestCase
@@ -84,6 +87,62 @@ class WordpressSiteReportingTest extends TestCase
             'ip_address' => '203.0.113.7',
         ]);
         $this->assertSame(1, WordpressLoginEvent::count());
+    }
+
+    public function test_a_login_from_a_whitelisted_ip_does_not_alert_admins(): void
+    {
+        Notification::fake();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $site = $this->createSite();
+        $site->update(['ip_whitelist' => "203.0.113.7\n198.51.100.0/24"]);
+
+        $this->signedLogin($site, [
+            'username' => 'admin',
+            'ipAddress' => '203.0.113.7',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('wordpress_login_events', [
+            'wordpress_site_id' => $site->id,
+            'is_authorized' => true,
+        ]);
+        Notification::assertNothingSentTo($admin);
+    }
+
+    public function test_a_login_from_a_non_whitelisted_ip_alerts_admins(): void
+    {
+        Notification::fake();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $site = $this->createSite();
+        $site->update(['ip_whitelist' => '203.0.113.7']);
+
+        $this->signedLogin($site, [
+            'username' => 'admin',
+            'ipAddress' => '198.51.100.99',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('wordpress_login_events', [
+            'wordpress_site_id' => $site->id,
+            'is_authorized' => false,
+        ]);
+        Notification::assertSentTo($admin, UnauthorizedWordpressLoginNotification::class);
+    }
+
+    public function test_a_login_is_not_flagged_when_no_whitelist_is_configured(): void
+    {
+        Notification::fake();
+        User::factory()->create(['role' => 'admin']);
+        $site = $this->createSite();
+
+        $this->signedLogin($site, [
+            'username' => 'admin',
+            'ipAddress' => '198.51.100.99',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('wordpress_login_events', [
+            'wordpress_site_id' => $site->id,
+            'is_authorized' => null,
+        ]);
+        Notification::assertNothingSent();
     }
 
     public function test_a_missing_or_invalid_site_token_is_rejected(): void
