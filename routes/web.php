@@ -26,6 +26,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/monitor/ec2/sync', [MonitoringIngestController::class, 'syncEc2'])->middleware('role:admin')->name('monitor.ec2.sync');
     Route::get('/users', [UserManagementController::class, 'index'])->middleware('role:admin')->name('users.index');
     Route::post('/users', [UserManagementController::class, 'store'])->middleware('role:admin')->name('users.store');
+    Route::put('/users/{user}', [UserManagementController::class, 'update'])->middleware('role:admin')->name('users.update');
     Route::get('/wordpress-sites', [WordpressSiteController::class, 'index'])->middleware('role:admin')->name('wordpress-sites.index');
     Route::post('/wordpress-sites', [WordpressSiteController::class, 'store'])->middleware('role:admin')->name('wordpress-sites.store');
     Route::post('/wordpress-sites/{wordpressSite}/rotate-token', [WordpressSiteController::class, 'rotateToken'])->middleware('role:admin')->name('wordpress-sites.rotate-token');

@@ -33,4 +33,28 @@ class UserManagementController extends Controller
 
         return redirect()->route('users.index')->with('status', 'User created.');
     }
+
+    public function update(Request $request, User $user)
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email,' . $user->id],
+            'role' => ['required', 'in:admin,viewer'],
+            'password' => ['nullable', 'string', 'min:12', 'max:128', 'confirmed'],
+        ]);
+
+        $user->fill([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'role' => $validated['role'],
+        ]);
+
+        if (! empty($validated['password'])) {
+            $user->password = Hash::make($validated['password']);
+        }
+
+        $user->save();
+
+        return redirect()->route('users.index')->with('status', "User {$user->name} updated.");
+    }
 }
