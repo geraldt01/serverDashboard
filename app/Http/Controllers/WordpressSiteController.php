@@ -9,6 +9,7 @@ use App\Models\WordpressPluginUpdate;
 use App\Models\WordpressSite;
 use App\Notifications\UnauthorizedWordpressLoginNotification;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 
@@ -160,8 +161,21 @@ class WordpressSiteController extends Controller
         if ($isWhitelisted === false) {
             $admins = User::query()->where('role', 'admin')->get();
 
-            if ($admins->isNotEmpty()) {
-                Notification::send($admins, new UnauthorizedWordpressLoginNotification($loginEvent));
+            if ($admins->isEmpty()) {
+                Log::warning('Unauthorized WP-admin login detected but no admin users exist to notify.', [
+                    'wordpress_site_id' => $wordpressSite->id,
+                    'ip_address' => $validated['ipAddress'],
+                ]);
+            } else {
+                try {
+                    Notification::send($admins, new UnauthorizedWordpressLoginNotification($loginEvent));
+                } catch (\Throwable $e) {
+                    Log::error('Failed to send unauthorized WP-admin login alert email.', [
+                        'wordpress_site_id' => $wordpressSite->id,
+                        'ip_address' => $validated['ipAddress'],
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
         }
 
