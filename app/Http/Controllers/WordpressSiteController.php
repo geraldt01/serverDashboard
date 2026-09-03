@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\WordpressCoreUpdate;
+use App\Models\WordpressLoginEvent;
 use App\Models\WordpressPluginUpdate;
 use App\Models\WordpressSite;
 use Illuminate\Http\Request;
@@ -67,11 +69,15 @@ class WordpressSiteController extends Controller
     public function report(Request $request, WordpressSite $wordpressSite)
     {
         $validated = $request->validate([
-            'plugins' => ['required', 'array', 'max:500'],
+            'plugins' => ['present', 'array', 'max:500'],
             'plugins.*.pluginName' => ['required', 'string', 'max:255'],
             'plugins.*.currentVersion' => ['required', 'string', 'max:80'],
             'plugins.*.latestVersion' => ['required', 'string', 'max:80'],
             'plugins.*.status' => ['required', 'in:up_to_date,outdated,unknown'],
+            'core' => ['nullable', 'array'],
+            'core.currentVersion' => ['required_with:core', 'string', 'max:20'],
+            'core.latestVersion' => ['required_with:core', 'string', 'max:20'],
+            'core.status' => ['required_with:core', 'in:up_to_date,outdated,unknown'],
         ]);
 
         $checkedAt = now();
@@ -91,6 +97,17 @@ class WordpressSiteController extends Controller
             WordpressPluginUpdate::insert($records);
         }
 
+        if (isset($validated['core'])) {
+            WordpressCoreUpdate::create([
+                'wordpress_site_id' => $wordpressSite->id,
+                'site_name' => $wordpressSite->name,
+                'current_version' => $validated['core']['currentVersion'],
+                'latest_version' => $validated['core']['latestVersion'],
+                'status' => $validated['core']['status'],
+                'checked_at' => $checkedAt,
+            ]);
+        }
+
         $wordpressSite->update([
             'last_plugin_count' => count($records),
             'last_outdated_count' => collect($records)->where('status', 'outdated')->count(),
@@ -101,6 +118,27 @@ class WordpressSiteController extends Controller
             'message' => 'WordPress plugin report saved.',
             'inserted' => count($records),
         ], 201);
+    }
+
+    public function reportLogin(Request $request, WordpressSite $wordpressSite)
+    {
+        $validated = $request->validate([
+            'username' => ['required', 'string', 'max:120'],
+            'ipAddress' => ['required', 'ip'],
+            'userAgent' => ['nullable', 'string', 'max:255'],
+            'loggedInAt' => ['nullable', 'date'],
+        ]);
+
+        WordpressLoginEvent::create([
+            'wordpress_site_id' => $wordpressSite->id,
+            'site_name' => $wordpressSite->name,
+            'username' => $validated['username'],
+            'ip_address' => $validated['ipAddress'],
+            'user_agent' => $validated['userAgent'] ?? null,
+            'logged_in_at' => $validated['loggedInAt'] ?? now(),
+        ]);
+
+        return response()->json(['message' => 'WordPress login event saved.'], 201);
     }
 
     private function credentialsFor(WordpressSite $site, string $token): array

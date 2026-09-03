@@ -36,6 +36,10 @@ Route::post('/ingest/wordpress/site/{wordpressSite:slug}', [WordpressSiteControl
     ->middleware(['wordpress.site.token', 'throttle:120,1'])
     ->name('wordpress-sites.report');
 
+Route::post('/ingest/wordpress/site/{wordpressSite:slug}/login', [WordpressSiteController::class, 'reportLogin'])
+    ->middleware(['wordpress.site.token', 'throttle:120,1'])
+    ->name('wordpress-sites.report-login');
+
 Route::prefix('ingest')->middleware(['monitor.key', 'throttle:120,1'])->group(function () {
     Route::post('/traffic', [MonitoringIngestController::class, 'traffic']);
     Route::post('/wordpress', [MonitoringIngestController::class, 'wordpress']);

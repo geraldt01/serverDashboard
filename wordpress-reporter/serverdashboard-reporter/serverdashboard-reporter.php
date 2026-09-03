@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: ServerDashboard Plugin Reporter
- * Description: Securely reports installed WordPress plugin update status to ServerDashboard.
- * Version: 1.1.2
+ * Description: Securely reports installed WordPress plugin/core update status and wp-admin logins to ServerDashboard.
+ * Version: 1.2.0
  * Requires at least: 5.8
  * Requires PHP: 7.4
  * License: GPL-2.0-or-later
@@ -238,6 +238,27 @@ function serverdashboard_reporter_collect_plugins(): array
     return $payload;
 }
 
+function serverdashboard_reporter_collect_core_update(): array
+{
+    require_once ABSPATH . 'wp-admin/includes/update.php';
+    wp_version_check();
+    $updates = get_core_updates();
+    $current = get_bloginfo('version');
+    $latest = $current;
+    $status = 'unknown';
+
+    if (is_array($updates) && isset($updates[0])) {
+        $status = ($updates[0]->response ?? '') === 'upgrade' ? 'outdated' : 'up_to_date';
+        $latest = (string) ($updates[0]->version ?? $current);
+    }
+
+    return [
+        'currentVersion' => (string) $current,
+        'latestVersion' => (string) $latest,
+        'status' => $status,
+    ];
+}
+
 function serverdashboard_reporter_send(): array
 {
     $settings = serverdashboard_reporter_settings();
@@ -246,7 +267,10 @@ function serverdashboard_reporter_send(): array
         return ['ok' => false, 'message' => 'Configure the secure endpoint and site token first.'];
     }
 
-    $body = wp_json_encode(['plugins' => serverdashboard_reporter_collect_plugins()]);
+    $body = wp_json_encode([
+        'plugins' => serverdashboard_reporter_collect_plugins(),
+        'core' => serverdashboard_reporter_collect_core_update(),
+    ]);
     if (! is_string($body)) {
         serverdashboard_reporter_audit('report_failed', 'The plugin report could not be encoded.');
         return ['ok' => false, 'message' => 'The plugin report could not be encoded.'];
@@ -294,6 +318,81 @@ function serverdashboard_reporter_send(): array
     serverdashboard_reporter_audit('report_sent', sprintf('Signed report sent for %d plugins.', count(json_decode($body, true)['plugins'] ?? [])));
 
     return ['ok' => true, 'message' => 'Signed plugin update report sent.'];
+}
+
+function serverdashboard_reporter_client_ip(): string
+{
+    $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+
+    return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '';
+}
+
+function serverdashboard_reporter_report_login(string $userLogin): void
+{
+    $settings = serverdashboard_reporter_settings();
+    if ($settings['endpoint'] === '' || $settings['token'] === '') {
+        return;
+    }
+
+    $ip = serverdashboard_reporter_client_ip();
+    if ($ip === '') {
+        serverdashboard_reporter_audit('login_report_failed', 'Could not determine a valid client IP address.');
+        return;
+    }
+
+    $userAgent = isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '';
+    $body = wp_json_encode([
+        'username' => sanitize_user($userLogin),
+        'ipAddress' => $ip,
+        'userAgent' => $userAgent !== '' ? substr($userAgent, 0, 255) : null,
+    ]);
+
+    if (! is_string($body)) {
+        return;
+    }
+
+    try {
+        $nonce = bin2hex(random_bytes(16));
+    } catch (\Throwable $exception) {
+        serverdashboard_reporter_audit('login_report_failed', 'A secure request nonce could not be generated.');
+        return;
+    }
+
+    $loginEndpoint = rtrim($settings['endpoint'], '/') . '/login';
+    $timestamp = (string) time();
+    $signature = hash_hmac('sha256', $timestamp . '.' . $nonce . '.' . $body, $settings['token']);
+    $isDevelopmentHttpEndpoint = serverdashboard_reporter_is_development_http_endpoint($settings['endpoint'], $settings['allow_development_http']);
+    $requestArgs = [
+        'timeout' => 10,
+        'redirection' => 0,
+        'sslverify' => true,
+        'reject_unsafe_urls' => ! $isDevelopmentHttpEndpoint,
+        'limit_response_size' => 4096,
+        'headers' => [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json',
+            'X-WordPress-Monitor-Timestamp' => $timestamp,
+            'X-WordPress-Monitor-Nonce' => $nonce,
+            'X-WordPress-Monitor-Signature' => $signature,
+        ],
+        'body' => $body,
+    ];
+    $response = $isDevelopmentHttpEndpoint
+        ? wp_remote_post($loginEndpoint, $requestArgs)
+        : wp_safe_remote_post($loginEndpoint, $requestArgs);
+
+    if (is_wp_error($response)) {
+        serverdashboard_reporter_audit('login_report_failed', 'Transport error: ' . $response->get_error_code());
+        return;
+    }
+
+    $statusCode = wp_remote_retrieve_response_code($response);
+    if ($statusCode < 200 || $statusCode >= 300) {
+        serverdashboard_reporter_audit('login_report_failed', 'Dashboard returned HTTP ' . $statusCode . '.');
+        return;
+    }
+
+    serverdashboard_reporter_audit('login_reported', sprintf('Reported wp-admin login for user "%s".', $userLogin));
 }
 
 function serverdashboard_reporter_handle_manual_report(): void
@@ -348,5 +447,6 @@ add_action('admin_menu', fn () => add_options_page('ServerDashboard Reporter', '
 add_action('admin_post_serverdashboard_report_now', 'serverdashboard_reporter_handle_manual_report');
 add_action('admin_notices', 'serverdashboard_reporter_admin_notice');
 add_action(SERVER_DASHBOARD_REPORTER_CRON, 'serverdashboard_reporter_send');
+add_action('wp_login', 'serverdashboard_reporter_report_login', 10, 1);
 register_activation_hook(__FILE__, 'serverdashboard_reporter_activate');
 register_deactivation_hook(__FILE__, 'serverdashboard_reporter_deactivate');

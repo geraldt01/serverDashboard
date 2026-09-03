@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\WordpressCoreUpdate;
+use App\Models\WordpressLoginEvent;
 use App\Models\WordpressPluginUpdate;
 use App\Models\WordpressSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -38,6 +40,50 @@ class WordpressSiteReportingTest extends TestCase
             'last_plugin_count' => 1,
             'last_outdated_count' => 1,
         ]);
+    }
+
+    public function test_a_registered_site_can_report_a_core_update(): void
+    {
+        $site = $this->createSite();
+
+        $response = $this->signedReport($site, [
+            'plugins' => [],
+            'core' => [
+                'currentVersion' => '6.5',
+                'latestVersion' => '6.6',
+                'status' => 'outdated',
+            ],
+        ]);
+
+        $response->assertCreated();
+
+        $this->assertDatabaseHas('wordpress_core_updates', [
+            'wordpress_site_id' => $site->id,
+            'current_version' => '6.5',
+            'latest_version' => '6.6',
+            'status' => 'outdated',
+        ]);
+        $this->assertSame(1, WordpressCoreUpdate::count());
+    }
+
+    public function test_a_registered_site_can_report_a_wp_admin_login(): void
+    {
+        $site = $this->createSite();
+
+        $response = $this->signedLogin($site, [
+            'username' => 'admin',
+            'ipAddress' => '203.0.113.7',
+            'userAgent' => 'Mozilla/5.0',
+        ]);
+
+        $response->assertCreated();
+
+        $this->assertDatabaseHas('wordpress_login_events', [
+            'wordpress_site_id' => $site->id,
+            'username' => 'admin',
+            'ip_address' => '203.0.113.7',
+        ]);
+        $this->assertSame(1, WordpressLoginEvent::count());
     }
 
     public function test_a_missing_or_invalid_site_token_is_rejected(): void
@@ -82,6 +128,22 @@ class WordpressSiteReportingTest extends TestCase
         $signature = hash_hmac('sha256', $timestamp . '.' . $nonce . '.' . $body, $site->monitoringToken());
 
         return $this->call('POST', "/ingest/wordpress/site/{$site->slug}", [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_ACCEPT' => 'application/json',
+            'HTTP_X_WORDPRESS_MONITOR_TIMESTAMP' => $timestamp,
+            'HTTP_X_WORDPRESS_MONITOR_NONCE' => $nonce,
+            'HTTP_X_WORDPRESS_MONITOR_SIGNATURE' => $signature,
+        ], $body);
+    }
+
+    private function signedLogin(WordpressSite $site, array $payload, ?string $timestamp = null, ?string $nonce = null)
+    {
+        $timestamp ??= (string) now()->timestamp;
+        $nonce ??= bin2hex(random_bytes(16));
+        $body = json_encode($payload, JSON_THROW_ON_ERROR);
+        $signature = hash_hmac('sha256', $timestamp . '.' . $nonce . '.' . $body, $site->monitoringToken());
+
+        return $this->call('POST', "/ingest/wordpress/site/{$site->slug}/login", [], [], [], [
             'CONTENT_TYPE' => 'application/json',
             'HTTP_ACCEPT' => 'application/json',
             'HTTP_X_WORDPRESS_MONITOR_TIMESTAMP' => $timestamp,

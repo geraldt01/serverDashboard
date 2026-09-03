@@ -41,4 +41,14 @@ class WordpressSite extends Model
     {
         return $this->hasMany(WordpressPluginUpdate::class);
     }
+
+    public function coreUpdates()
+    {
+        return $this->hasMany(WordpressCoreUpdate::class);
+    }
+
+    public function loginEvents()
+    {
+        return $this->hasMany(WordpressLoginEvent::class);
+    }
 }

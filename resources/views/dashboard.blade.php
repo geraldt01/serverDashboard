@@ -21,6 +21,7 @@
     <section class="meters">
         <article class="panel meter"><h3>Traffic (last 24h)</h3><div class="value">{{ number_format($trafficLast24h) }}</div></article>
         <article class="panel meter"><h3>Outdated WordPress plugins</h3><div class="value">{{ number_format($outdatedPlugins) }}</div></article>
+        <article class="panel meter"><h3>Outdated WordPress core</h3><div class="value">{{ number_format($outdatedCoreSites) }}</div></article>
         <article class="panel meter"><h3>EC2 missing patches</h3><div class="value">{{ number_format($ec2MissingPatches) }}</div></article>
     </section>
 
@@ -28,6 +29,8 @@
         <article class="panel wide content"><h2>Website Traffic Trend</h2><div class="chart-area"><canvas id="trafficChart"></canvas></div></article>
         <article class="panel content"><h2>WordPress Plugin Updates</h2><div class="scroll"><table><thead><tr><th>Site</th><th>Plugin</th><th>Current</th><th>Latest</th><th>Status</th></tr></thead><tbody>@forelse($plugins as $plugin)<tr><td>{{ $plugin->site_name }}</td><td>{{ $plugin->plugin_name }}</td><td>{{ $plugin->current_version }}</td><td>{{ $plugin->latest_version }}</td><td><span class="badge {{ $plugin->status === 'outdated' ? 'warning' : 'ok' }}">{{ $plugin->status }}</span></td></tr>@empty<tr><td colspan="5">No plugin reports received.</td></tr>@endforelse</tbody></table></div></article>
         <article class="panel content"><h2>EC2 Patch Status</h2><div class="scroll"><table><thead><tr><th>Instance</th><th>Missing</th><th>Installed</th><th>Failed</th><th>Reboot</th></tr></thead><tbody>@forelse($instances as $instance)<tr><td>{{ $instance->instance_name }}<br><span class="muted">{{ $instance->instance_id }}</span></td><td>{{ $instance->missing_count }}</td><td>{{ $instance->installed_count }}</td><td>{{ $instance->failed_count }}</td><td><span class="badge {{ $instance->reboot_required ? 'warning' : 'ok' }}">{{ $instance->reboot_required ? 'required' : 'no' }}</span></td></tr>@empty<tr><td colspan="5">No EC2 reports received.</td></tr>@endforelse</tbody></table></div></article>
+        <article class="panel content"><h2>WordPress Core Updates</h2><div class="scroll"><table><thead><tr><th>Site</th><th>Current</th><th>Latest</th><th>Status</th></tr></thead><tbody>@forelse($coreUpdates as $coreUpdate)<tr><td>{{ $coreUpdate->site_name }}</td><td>{{ $coreUpdate->current_version }}</td><td>{{ $coreUpdate->latest_version }}</td><td><span class="badge {{ $coreUpdate->status === 'outdated' ? 'warning' : 'ok' }}">{{ $coreUpdate->status }}</span></td></tr>@empty<tr><td colspan="4">No core update reports received.</td></tr>@endforelse</tbody></table></div></article>
+        <article class="panel content"><h2>Recent WP-Admin Logins</h2><div class="scroll"><table><thead><tr><th>Site</th><th>User</th><th>IP address</th><th>When</th></tr></thead><tbody>@forelse($recentLogins as $login)<tr><td>{{ $login->site_name }}</td><td>{{ $login->username }}</td><td>{{ $login->ip_address }}</td><td>{{ $login->logged_in_at->diffForHumans() }}</td></tr>@empty<tr><td colspan="4">No login events received.</td></tr>@endforelse</tbody></table></div></article>
     </section>
     <script>
         const rows = @json($trafficRows);

@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Ec2PatchStatus;
 use App\Models\TrafficEvent;
 use App\Models\User;
+use App\Models\WordpressCoreUpdate;
+use App\Models\WordpressLoginEvent;
 use App\Models\WordpressPluginUpdate;
 use App\Models\WordpressSite;
 use Illuminate\Http\Request;
@@ -29,6 +31,10 @@ class DashboardController extends Controller
             ->selectRaw('MAX(id)')
             ->groupBy('instance_id');
 
+        $latestCoreIds = WordpressCoreUpdate::query()
+            ->selectRaw('MAX(id)')
+            ->groupBy('site_name');
+
         $plugins = WordpressPluginUpdate::query()
             ->whereIn('id', $latestPluginIds)
             ->orderByRaw("CASE status WHEN 'outdated' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END")
@@ -41,13 +47,27 @@ class DashboardController extends Controller
             ->orderBy('instance_name')
             ->get();
 
+        $coreUpdates = WordpressCoreUpdate::query()
+            ->whereIn('id', $latestCoreIds)
+            ->orderByRaw("CASE status WHEN 'outdated' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END")
+            ->orderBy('site_name')
+            ->get();
+
+        $recentLogins = WordpressLoginEvent::query()
+            ->latest('logged_in_at')
+            ->limit(25)
+            ->get();
+
         return view('dashboard', [
             'trafficLast24h' => TrafficEvent::query()->where('recorded_at', '>=', now()->subDay())->sum('visits'),
             'outdatedPlugins' => $plugins->where('status', 'outdated')->count(),
             'ec2MissingPatches' => $instances->sum('missing_count'),
+            'outdatedCoreSites' => $coreUpdates->where('status', 'outdated')->count(),
             'trafficRows' => $trafficRows,
             'plugins' => $plugins,
             'instances' => $instances,
+            'coreUpdates' => $coreUpdates,
+            'recentLogins' => $recentLogins,
             'wordpressSites' => $request->user()->isAdmin()
                 ? WordpressSite::query()->orderBy('name')->get()
                 : collect(),

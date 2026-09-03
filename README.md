@@ -68,11 +68,11 @@ Change these credentials before deployment.
 4. Copy the matching **Reporter endpoint** and **Site token** shown in the dashboard into the reporter settings.
 5. Select **Send plugin report now** to confirm the connection. The plugin then posts a report every day through WordPress cron.
 
-The reporter uses WordPress's native plugin update check. It sends the installed version, newest available version, and whether an update is available for every installed plugin.
+The reporter uses WordPress's native plugin and core update checks. It sends the installed version, newest available version, and whether an update is available for every installed plugin, plus the same information for WordPress core. It also hooks into `wp_login` to immediately report the username and client IP address of every wp-admin login to the dashboard.
 
 ## Reporter Security
 
-The included reporter ZIP is version 1.1.2. It requires an HTTPS endpoint by default and will not submit reports to plain HTTP URLs in production. During development, an administrator can explicitly enable **Development HTTP endpoint** in the WordPress reporter settings, save, and use an `http://` endpoint temporarily. Disable that option before production because HTTP does not protect report metadata in transit.
+The included reporter ZIP is version 1.2.0. It requires an HTTPS endpoint by default and will not submit reports to plain HTTP URLs in production. During development, an administrator can explicitly enable **Development HTTP endpoint** in the WordPress reporter settings, save, and use an `http://` endpoint temporarily. Disable that option before production because HTTP does not protect report metadata in transit.
 
 Enabling this option only removes the reporter's HTTPS validation. It does not make `127.0.0.1` reachable from another machine: a public WordPress site still needs an address that routes to the dashboard development machine, such as a LAN hostname, a temporary HTTPS tunnel, or the final public deployment domain. It provides the following protections:
 
