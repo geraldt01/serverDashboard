@@ -45,6 +45,7 @@
                         <td><span class="badge {{ $server->reboot_required ? 'warning' : 'ok' }}">{{ $server->reboot_required ? 'required' : 'no' }}</span></td>
                         <td>
                             <div class="actions">
+                                <form method="POST" action="{{ route('other-servers.test-connection', $server) }}">@csrf<button type="submit" class="secondary" @if(! $server->hostname) disabled title="Set a hostname to test connectivity" @endif>Test connection</button></form>
                                 <form method="POST" action="{{ route('other-servers.rotate-token', $server) }}">@csrf<button type="submit">Rotate token</button></form>
                                 <form method="POST" action="{{ route('other-servers.toggle-active', $server) }}">@csrf<button type="submit" class="secondary">{{ $server->is_active ? 'Disable' : 'Enable' }}</button></form>
                             </div>
@@ -56,6 +57,7 @@
                 </tbody>
             </table>
         </div>
+        <p class="muted" style="margin-top:10px;">"Test connection" checks that the server's hostname resolves to a public address and that TCP port 22 (SSH) accepts connections &mdash; it does not log in or use any credentials.</p>
     </section>
 
     <section class="panel content" style="margin-top:14px;">

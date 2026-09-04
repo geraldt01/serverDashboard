@@ -63,6 +63,42 @@ class OtherServerController extends Controller
         return redirect()->route('other-servers.index')->with('status', "Reporting for {$otherServer->name} is {$state}.");
     }
 
+    public function testConnection(OtherServer $otherServer)
+    {
+        $hostname = trim((string) $otherServer->hostname);
+
+        if ($hostname === '') {
+            return redirect()->route('other-servers.index')
+                ->with('status', "Cannot test {$otherServer->name}: no hostname/EC2 address is set for this server.");
+        }
+
+        if (filter_var($hostname, FILTER_VALIDATE_IP)) {
+            $ip = $hostname;
+        } else {
+            $resolved = gethostbyname($hostname);
+            $ip = $resolved !== $hostname ? $resolved : null;
+        }
+
+        // Block loopback/private/reserved ranges so an admin-supplied hostname can't be used to probe internal infrastructure (e.g. the AWS metadata service).
+        if ($ip === null || ! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            return redirect()->route('other-servers.index')
+                ->with('status', "Connection test for {$otherServer->name} failed: \"{$hostname}\" could not be resolved to a public address.");
+        }
+
+        $port = 22;
+        $connection = @fsockopen($ip, $port, $errno, $errstr, 5);
+
+        if ($connection) {
+            fclose($connection);
+
+            return redirect()->route('other-servers.index')
+                ->with('status', "Connection test succeeded: {$otherServer->name} ({$hostname}:{$port}) is reachable.");
+        }
+
+        return redirect()->route('other-servers.index')
+            ->with('status', "Connection test failed: {$otherServer->name} ({$hostname}:{$port}) is not reachable ({$errstr}).");
+    }
+
     public function report(Request $request, OtherServer $otherServer)
     {
         $validated = $request->validate([
