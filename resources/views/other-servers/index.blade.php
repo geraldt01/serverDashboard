@@ -142,12 +142,12 @@ EOF
 
 sudo tee /etc/systemd/system/serverdashboard-agent.timer >/dev/null <<'EOF'
 [Unit]
-Description=Run ServerDashboard update report hourly
+Description=Run ServerDashboard update report every 6 hours
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=1h
-RandomizedDelaySec=5min
+OnUnitActiveSec=6h
+RandomizedDelaySec=15min
 Persistent=true
 
 [Install]
