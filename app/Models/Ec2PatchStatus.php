@@ -13,9 +13,11 @@ class Ec2PatchStatus extends Model
         'instance_id',
         'instance_name',
         'missing_count',
+        'security_count',
         'installed_count',
         'failed_count',
         'reboot_required',
+        'os_version',
         'checked_at',
     ];
 

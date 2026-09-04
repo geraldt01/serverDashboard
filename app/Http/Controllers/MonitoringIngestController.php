@@ -92,14 +92,24 @@ class MonitoringIngestController extends Controller
             $records = [];
             foreach (array_chunk($instanceIds, 50) as $chunk) {
                 $patchStates = $ssm->describeInstancePatchStates(['InstanceIds' => $chunk]);
+                $instanceInfo = $ssm->describeInstanceInformation([
+                    'Filters' => [['Key' => 'InstanceIds', 'Values' => $chunk]],
+                ]);
+                $osVersions = [];
+                foreach ($instanceInfo['InstanceInformationList'] as $info) {
+                    $osVersions[$info['InstanceId']] = trim(($info['PlatformName'] ?? '') . ' ' . ($info['PlatformVersion'] ?? ''));
+                }
+
                 foreach ($patchStates['InstancePatchStates'] as $state) {
                     $records[] = [
                         'instance_id' => $state['InstanceId'],
                         'instance_name' => $names[$state['InstanceId']] ?? $state['InstanceId'],
                         'missing_count' => $state['MissingCount'] ?? 0,
+                        'security_count' => $state['SecurityNonCompliantCount'] ?? 0,
                         'installed_count' => $state['InstalledCount'] ?? 0,
                         'failed_count' => $state['FailedCount'] ?? 0,
                         'reboot_required' => ($state['MissingCount'] ?? 0) > 0 && ($state['RebootOption'] ?? '') !== 'NoReboot',
+                        'os_version' => $osVersions[$state['InstanceId']] ?: null,
                         'checked_at' => now(),
                     ];
                 }
@@ -119,18 +129,22 @@ class MonitoringIngestController extends Controller
                 'instance_id' => 'i-0a1b2c3d4e5f001',
                 'instance_name' => 'wp-prod-1',
                 'missing_count' => 4,
+                'security_count' => 3,
                 'installed_count' => 112,
                 'failed_count' => 0,
                 'reboot_required' => true,
+                'os_version' => 'Ubuntu 22.04',
                 'checked_at' => now(),
             ],
             [
                 'instance_id' => 'i-0a1b2c3d4e5f002',
                 'instance_name' => 'api-prod-1',
                 'missing_count' => 0,
+                'security_count' => 0,
                 'installed_count' => 97,
                 'failed_count' => 0,
                 'reboot_required' => false,
+                'os_version' => 'Amazon Linux 2023',
                 'checked_at' => now(),
             ],
         ];
