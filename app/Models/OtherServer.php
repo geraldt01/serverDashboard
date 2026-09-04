@@ -13,6 +13,7 @@ class OtherServer extends Model
         'name',
         'slug',
         'hostname',
+        'aws_instance_id',
         'monitor_token_encrypted',
         'is_active',
         'os_name',

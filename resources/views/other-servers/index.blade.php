@@ -24,6 +24,7 @@
             @csrf
             <div><label for="other-server-name">Server name</label><input id="other-server-name" name="name" value="{{ old('name') }}" required><span class="error">@error('name'){{ $message }}@enderror</span></div>
             <div><label for="other-server-hostname">Hostname / EC2 instance (optional)</label><input id="other-server-hostname" name="hostname" placeholder="ec2-54-206-154-130.ap-southeast-2.compute.amazonaws.com" value="{{ old('hostname') }}"><span class="error">@error('hostname'){{ $message }}@enderror</span></div>
+            <div><label for="other-server-instance-id">AWS instance ID (optional, enables manual patch)</label><input id="other-server-instance-id" name="awsInstanceId" placeholder="i-0a1b2c3d4e5f6789a" value="{{ old('awsInstanceId') }}"><span class="error">@error('awsInstanceId'){{ $message }}@enderror</span></div>
             <div style="align-self:end;"><button type="submit">Add server</button></div>
         </form>
     </section>
@@ -36,7 +37,7 @@
                 <tbody>
                 @forelse($otherServers as $server)
                     <tr>
-                        <td><strong>{{ $server->name }}</strong>@if($server->hostname)<br><span class="muted">{{ $server->hostname }}</span>@endif</td>
+                        <td><strong>{{ $server->name }}</strong>@if($server->hostname)<br><span class="muted">{{ $server->hostname }}</span>@endif@if($server->aws_instance_id)<br><span class="muted">{{ $server->aws_instance_id }}</span>@endif</td>
                         <td><span class="badge {{ $server->is_active ? 'ok' : 'danger' }}">{{ $server->is_active ? 'enabled' : 'disabled' }}</span></td>
                         <td>{{ $server->os_name ?? '—' }}</td>
                         <td>{{ $server->last_reported_at?->diffForHumans() ?? 'No report yet' }}</td>
@@ -46,6 +47,7 @@
                         <td>
                             <div class="actions">
                                 <form method="POST" action="{{ route('other-servers.test-connection', $server) }}">@csrf<button type="submit" class="secondary" @if(! $server->hostname) disabled title="Set a hostname to test connectivity" @endif>Test connection</button></form>
+                                <form method="POST" action="{{ route('other-servers.patch-now', $server) }}">@csrf<button type="submit" @if(! $server->aws_instance_id) disabled title="Set an AWS instance ID to enable manual patch checks" @endif>Patch now</button></form>
                                 <form method="POST" action="{{ route('other-servers.rotate-token', $server) }}">@csrf<button type="submit">Rotate token</button></form>
                                 <form method="POST" action="{{ route('other-servers.toggle-active', $server) }}">@csrf<button type="submit" class="secondary">{{ $server->is_active ? 'Disable' : 'Enable' }}</button></form>
                             </div>
@@ -58,6 +60,7 @@
             </table>
         </div>
         <p class="muted" style="margin-top:10px;">"Test connection" resolves the server's hostname and checks that TCP port 22 (SSH) accepts connections &mdash; it does not log in or use any credentials. Loopback and link-local addresses (including the cloud metadata service) are always rejected.</p>
+        <p class="muted">"Patch now" runs the update-check script immediately via AWS Systems Manager Run Command (no SSH keys stored by the dashboard) instead of waiting for the agent's 6-hour timer. It requires the SSM Agent and an IAM instance profile with Systems Manager access on the target instance, plus an AWS instance ID set above.</p>
     </section>
 
     <section class="panel content" style="margin-top:14px;">

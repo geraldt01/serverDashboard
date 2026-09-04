@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\OtherServer;
+use Aws\Ssm\SsmClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -20,6 +21,7 @@ class OtherServerController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'hostname' => ['nullable', 'string', 'max:255'],
+            'awsInstanceId' => ['nullable', 'string', 'regex:/^i-[0-9a-f]{8,17}$/'],
         ]);
 
         $baseSlug = Str::slug($validated['name']) ?: 'server';
@@ -35,6 +37,7 @@ class OtherServerController extends Controller
             'name' => $validated['name'],
             'slug' => $slug,
             'hostname' => $validated['hostname'] ?? null,
+            'aws_instance_id' => $validated['awsInstanceId'] ?? null,
         ]);
         $server->setMonitoringToken($token);
         $server->save();
@@ -98,6 +101,46 @@ class OtherServerController extends Controller
 
         return redirect()->route('other-servers.index')
             ->with('status', "Connection test failed: {$otherServer->name} ({$hostname}:{$port}) is not reachable ({$errstr}).");
+    }
+
+    /**
+     * Trigger an immediate patch/update check on the instance via AWS Systems Manager Run Command.
+     * No SSH keys are stored by the dashboard; execution relies on the instance's own SSM Agent and IAM role.
+     */
+    public function patchNow(OtherServer $otherServer)
+    {
+        $instanceId = trim((string) $otherServer->aws_instance_id);
+
+        if ($instanceId === '') {
+            return redirect()->route('other-servers.index')
+                ->with('status', "Cannot patch {$otherServer->name}: no AWS instance ID is set for this server.");
+        }
+
+        if (config('services.monitoring.mock_mode')) {
+            return redirect()->route('other-servers.index')
+                ->with('status', "(Mock mode) Patch check triggered for {$otherServer->name}. It will report new figures on its next push.");
+        }
+
+        try {
+            $ssm = new SsmClient(['version' => 'latest', 'region' => config('services.ses.region')]);
+            $result = $ssm->sendCommand([
+                'InstanceIds' => [$instanceId],
+                'DocumentName' => 'AWS-RunShellScript',
+                'Comment' => "ServerDashboard manual patch check: {$otherServer->name}",
+                'Parameters' => ['commands' => ['/usr/local/bin/serverdashboard-agent.sh']],
+                'TimeoutSeconds' => 60,
+            ]);
+
+            $commandId = $result['Command']['CommandId'] ?? null;
+
+            return redirect()->route('other-servers.index')
+                ->with('status', "Patch check triggered for {$otherServer->name} via AWS SSM (command {$commandId}). Updated figures should appear within a minute.");
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return redirect()->route('other-servers.index')
+                ->with('status', "Failed to trigger patch check for {$otherServer->name}: {$exception->getMessage()}");
+        }
     }
 
     /**
