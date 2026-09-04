@@ -72,17 +72,17 @@ class OtherServerController extends Controller
                 ->with('status', "Cannot test {$otherServer->name}: no hostname/EC2 address is set for this server.");
         }
 
-        if (filter_var($hostname, FILTER_VALIDATE_IP)) {
-            $ip = $hostname;
-        } else {
-            $resolved = gethostbyname($hostname);
-            $ip = $resolved !== $hostname ? $resolved : null;
+        $ip = $this->resolvePublicIp($hostname);
+
+        if ($ip === null) {
+            return redirect()->route('other-servers.index')
+                ->with('status', "Connection test for {$otherServer->name} failed: \"{$hostname}\" could not be resolved via DNS from this server. Verify the hostname is correct and that this server has outbound DNS access.");
         }
 
         // Block loopback/private/reserved ranges so an admin-supplied hostname can't be used to probe internal infrastructure (e.g. the AWS metadata service).
-        if ($ip === null || ! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+        if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
             return redirect()->route('other-servers.index')
-                ->with('status', "Connection test for {$otherServer->name} failed: \"{$hostname}\" could not be resolved to a public address.");
+                ->with('status', "Connection test for {$otherServer->name} blocked: \"{$hostname}\" resolves to {$ip}, a private/reserved address.");
         }
 
         $port = 22;
@@ -97,6 +97,30 @@ class OtherServerController extends Controller
 
         return redirect()->route('other-servers.index')
             ->with('status', "Connection test failed: {$otherServer->name} ({$hostname}:{$port}) is not reachable ({$errstr}).");
+    }
+
+    /**
+     * Resolve a hostname to an IPv4 address, falling back to a direct DNS query
+     * if the system resolver (gethostbyname) can't reach it.
+     */
+    private function resolvePublicIp(string $hostname): ?string
+    {
+        if (filter_var($hostname, FILTER_VALIDATE_IP)) {
+            return $hostname;
+        }
+
+        $viaSystemResolver = gethostbyname($hostname);
+        if ($viaSystemResolver !== $hostname && filter_var($viaSystemResolver, FILTER_VALIDATE_IP)) {
+            return $viaSystemResolver;
+        }
+
+        foreach (@dns_get_record($hostname, DNS_A) ?: [] as $record) {
+            if (isset($record['ip']) && filter_var($record['ip'], FILTER_VALIDATE_IP)) {
+                return $record['ip'];
+            }
+        }
+
+        return null;
     }
 
     public function report(Request $request, OtherServer $otherServer)
