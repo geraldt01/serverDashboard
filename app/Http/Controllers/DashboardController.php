@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Ec2PatchStatus;
+use App\Models\OtherServer;
 use App\Models\TrafficEvent;
 use App\Models\User;
 use App\Models\WordpressCoreUpdate;
@@ -47,6 +48,43 @@ class DashboardController extends Controller
             ->orderBy('instance_name')
             ->get();
 
+        $isAdmin = $request->user()->isAdmin();
+
+        $ec2Rows = $instances->map(fn (Ec2PatchStatus $instance) => (object) [
+            'source' => 'AWS SSM',
+            'name' => $instance->instance_name,
+            'identifier' => $instance->instance_id,
+            'os_version' => $instance->os_version,
+            'missing_count' => $instance->missing_count,
+            'security_count' => $instance->security_count,
+            'installed_count' => $instance->installed_count,
+            'failed_count' => $instance->failed_count,
+            'reboot_required' => $instance->reboot_required,
+            'checked_at' => $instance->checked_at,
+        ]);
+
+        $otherServerRows = OtherServer::query()
+            ->where('is_active', true)
+            ->orderByDesc('security_updates')
+            ->orderBy('name')
+            ->get()
+            ->map(fn (OtherServer $server) => (object) [
+                'source' => 'Agent',
+                'name' => $server->name,
+                'identifier' => $isAdmin ? ($server->hostname ?? $server->slug) : $server->slug,
+                'os_version' => $server->os_name,
+                'missing_count' => $server->total_updates,
+                'security_count' => $server->security_updates,
+                'installed_count' => null,
+                'failed_count' => null,
+                'reboot_required' => $server->reboot_required,
+                'checked_at' => $server->last_reported_at,
+            ]);
+
+        $patchInstances = $ec2Rows->concat($otherServerRows)
+            ->sortByDesc('missing_count')
+            ->values();
+
         $coreUpdates = WordpressCoreUpdate::query()
             ->whereIn('id', $latestCoreIds)
             ->orderByRaw("CASE status WHEN 'outdated' THEN 0 WHEN 'unknown' THEN 1 ELSE 2 END")
@@ -61,11 +99,11 @@ class DashboardController extends Controller
         return view('dashboard', [
             'trafficLast24h' => TrafficEvent::query()->where('recorded_at', '>=', now()->subDay())->sum('visits'),
             'outdatedPlugins' => $plugins->where('status', 'outdated')->count(),
-            'ec2MissingPatches' => $instances->sum('missing_count'),
+            'ec2MissingPatches' => $patchInstances->sum('missing_count'),
             'outdatedCoreSites' => $coreUpdates->where('status', 'outdated')->count(),
             'trafficRows' => $trafficRows,
             'plugins' => $plugins,
-            'instances' => $instances,
+            'instances' => $patchInstances,
             'coreUpdates' => $coreUpdates,
             'recentLogins' => $recentLogins,
             'wordpressSites' => $request->user()->isAdmin()
