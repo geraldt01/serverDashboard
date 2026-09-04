@@ -66,6 +66,22 @@ class OtherServerController extends Controller
         return redirect()->route('other-servers.index')->with('status', "Reporting for {$otherServer->name} is {$state}.");
     }
 
+    public function updateDetails(Request $request, OtherServer $otherServer)
+    {
+        $validated = $request->validate([
+            'hostname' => ['nullable', 'string', 'max:255'],
+            'awsInstanceId' => ['nullable', 'string', 'regex:/^i-[0-9a-f]{8,17}$/'],
+        ]);
+
+        $otherServer->update([
+            'hostname' => $validated['hostname'] ?? null,
+            'aws_instance_id' => $validated['awsInstanceId'] ?? null,
+        ]);
+
+        return redirect()->route('other-servers.index')
+            ->with('status', "Updated connection details for {$otherServer->name}.");
+    }
+
     public function testConnection(OtherServer $otherServer)
     {
         $hostname = trim((string) $otherServer->hostname);

@@ -51,6 +51,15 @@
                                 <form method="POST" action="{{ route('other-servers.rotate-token', $server) }}">@csrf<button type="submit">Rotate token</button></form>
                                 <form method="POST" action="{{ route('other-servers.toggle-active', $server) }}">@csrf<button type="submit" class="secondary">{{ $server->is_active ? 'Disable' : 'Enable' }}</button></form>
                             </div>
+                            <details style="margin-top:8px;">
+                                <summary class="muted" style="cursor:pointer;">Edit hostname / instance ID</summary>
+                                <form method="POST" action="{{ route('other-servers.update-details', $server) }}" class="form-grid" style="margin-top:8px;">
+                                    @csrf
+                                    <div><label for="other-server-hostname-{{ $server->id }}">Hostname / EC2 instance</label><input id="other-server-hostname-{{ $server->id }}" name="hostname" placeholder="ec2-54-206-154-130.ap-southeast-2.compute.amazonaws.com" value="{{ old('hostname', $server->hostname) }}"><span class="error">@error('hostname'){{ $message }}@enderror</span></div>
+                                    <div><label for="other-server-instance-id-{{ $server->id }}">AWS instance ID</label><input id="other-server-instance-id-{{ $server->id }}" name="awsInstanceId" placeholder="i-0a1b2c3d4e5f6789a" value="{{ old('awsInstanceId', $server->aws_instance_id) }}"><span class="error">@error('awsInstanceId'){{ $message }}@enderror</span></div>
+                                    <div style="align-self:end;"><button type="submit" class="secondary">Save</button></div>
+                                </form>
+                            </details>
                         </td>
                     </tr>
                 @empty
