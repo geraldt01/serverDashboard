@@ -57,7 +57,7 @@
                 </tbody>
             </table>
         </div>
-        <p class="muted" style="margin-top:10px;">"Test connection" checks that the server's hostname resolves to a public address and that TCP port 22 (SSH) accepts connections &mdash; it does not log in or use any credentials.</p>
+        <p class="muted" style="margin-top:10px;">"Test connection" resolves the server's hostname and checks that TCP port 22 (SSH) accepts connections &mdash; it does not log in or use any credentials. Loopback and link-local addresses (including the cloud metadata service) are always rejected.</p>
     </section>
 
     <section class="panel content" style="margin-top:14px;">

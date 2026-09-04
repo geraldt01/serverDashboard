@@ -72,17 +72,18 @@ class OtherServerController extends Controller
                 ->with('status', "Cannot test {$otherServer->name}: no hostname/EC2 address is set for this server.");
         }
 
-        $ip = $this->resolvePublicIp($hostname);
+        $ip = $this->resolveIp($hostname);
 
         if ($ip === null) {
             return redirect()->route('other-servers.index')
                 ->with('status', "Connection test for {$otherServer->name} failed: \"{$hostname}\" could not be resolved via DNS from this server. Verify the hostname is correct and that this server has outbound DNS access.");
         }
 
-        // Block loopback/private/reserved ranges so an admin-supplied hostname can't be used to probe internal infrastructure (e.g. the AWS metadata service).
-        if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+        // RFC1918 private ranges are allowed (EC2 public hostnames resolve to the private VPC IP when queried from inside the same VPC).
+        // Still block loopback/link-local so this can't be used to probe the dashboard's own host or the cloud metadata service (169.254.169.254).
+        if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_RES_RANGE)) {
             return redirect()->route('other-servers.index')
-                ->with('status', "Connection test for {$otherServer->name} blocked: \"{$hostname}\" resolves to {$ip}, a private/reserved address.");
+                ->with('status', "Connection test for {$otherServer->name} blocked: \"{$hostname}\" resolves to {$ip}, a reserved/link-local address.");
         }
 
         $port = 22;
@@ -103,7 +104,7 @@ class OtherServerController extends Controller
      * Resolve a hostname to an IPv4 address, falling back to a direct DNS query
      * if the system resolver (gethostbyname) can't reach it.
      */
-    private function resolvePublicIp(string $hostname): ?string
+    private function resolveIp(string $hostname): ?string
     {
         if (filter_var($hostname, FILTER_VALIDATE_IP)) {
             return $hostname;
