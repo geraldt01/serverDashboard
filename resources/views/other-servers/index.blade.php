@@ -37,7 +37,7 @@
                 <tbody>
                 @forelse($otherServers as $server)
                     <tr>
-                        <td><strong>{{ $server->name }}</strong>@if($server->hostname)<br><span class="muted">{{ $server->hostname }}</span>@endif@if($server->aws_instance_id)<br><span class="muted">{{ $server->aws_instance_id }}</span>@endif</td>
+                        <td><strong>{{ $server->name }}</strong>@if($server->hostname)<br><span class="muted">{{ $server->hostname }}</span>@endif @if($server->aws_instance_id)<br><span class="muted">{{ $server->aws_instance_id }}</span>@endif</td>
                         <td><span class="badge {{ $server->is_active ? 'ok' : 'danger' }}">{{ $server->is_active ? 'enabled' : 'disabled' }}</span></td>
                         <td>{{ $server->os_name ?? '—' }}</td>
                         <td>{{ $server->last_reported_at?->diffForHumans() ?? 'No report yet' }}</td>
