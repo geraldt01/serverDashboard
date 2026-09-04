@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MonitoringIngestController;
+use App\Http\Controllers\OtherServerController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\WordpressSiteController;
 use Illuminate\Support\Facades\Route;
@@ -32,6 +33,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/wordpress-sites/{wordpressSite}/rotate-token', [WordpressSiteController::class, 'rotateToken'])->middleware('role:admin')->name('wordpress-sites.rotate-token');
     Route::post('/wordpress-sites/{wordpressSite}/toggle-active', [WordpressSiteController::class, 'toggleActive'])->middleware('role:admin')->name('wordpress-sites.toggle-active');
     Route::post('/wordpress-sites/{wordpressSite}/whitelist', [WordpressSiteController::class, 'updateWhitelist'])->middleware('role:admin')->name('wordpress-sites.update-whitelist');
+    Route::get('/other-servers', [OtherServerController::class, 'index'])->middleware('role:admin')->name('other-servers.index');
+    Route::post('/other-servers', [OtherServerController::class, 'store'])->middleware('role:admin')->name('other-servers.store');
+    Route::post('/other-servers/{otherServer}/rotate-token', [OtherServerController::class, 'rotateToken'])->middleware('role:admin')->name('other-servers.rotate-token');
+    Route::post('/other-servers/{otherServer}/toggle-active', [OtherServerController::class, 'toggleActive'])->middleware('role:admin')->name('other-servers.toggle-active');
 });
 
 Route::post('/ingest/wordpress/site/{wordpressSite:slug}', [WordpressSiteController::class, 'report'])
@@ -41,6 +46,10 @@ Route::post('/ingest/wordpress/site/{wordpressSite:slug}', [WordpressSiteControl
 Route::post('/ingest/wordpress/site/{wordpressSite:slug}/login', [WordpressSiteController::class, 'reportLogin'])
     ->middleware(['wordpress.site.token', 'throttle:120,1'])
     ->name('wordpress-sites.report-login');
+
+Route::post('/ingest/other-server/{otherServer:slug}/report', [OtherServerController::class, 'report'])
+    ->middleware(['other.server.token', 'throttle:60,1'])
+    ->name('other-servers.report');
 
 Route::prefix('ingest')->middleware(['monitor.key', 'throttle:120,1'])->group(function () {
     Route::post('/traffic', [MonitoringIngestController::class, 'traffic']);
