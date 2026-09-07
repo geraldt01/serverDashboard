@@ -69,7 +69,7 @@
             </table>
         </div>
         <p class="muted" style="margin-top:10px;">"Test connection" resolves the server's hostname and checks that TCP port 22 (SSH) accepts connections &mdash; it does not log in or use any credentials. Loopback and link-local addresses (including the cloud metadata service) are always rejected.</p>
-        <p class="muted">"Patch now" runs the update-check script immediately via AWS Systems Manager Run Command (no SSH keys stored by the dashboard) instead of waiting for the agent's 6-hour timer. It requires the SSM Agent and an IAM instance profile with Systems Manager access on the target instance, plus an AWS instance ID set above.</p>
+        <p class="muted">"Patch now" runs the update-check script immediately via AWS Systems Manager Run Command (no SSH keys stored by the dashboard) instead of waiting for the agent's 3-hour timer. It requires the SSM Agent and an IAM instance profile with Systems Manager access on the target instance, plus an AWS instance ID set above.</p>
     </section>
 
     <section class="panel content" style="margin-top:14px;">
@@ -154,11 +154,11 @@ EOF
 
 sudo tee /etc/systemd/system/serverdashboard-agent.timer >/dev/null <<'EOF'
 [Unit]
-Description=Run ServerDashboard update report every 6 hours
+Description=Run ServerDashboard update report every 3 hours
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=6h
+OnUnitActiveSec=3h
 RandomizedDelaySec=15min
 Persistent=true
 

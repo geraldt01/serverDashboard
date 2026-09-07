@@ -4,6 +4,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MonitoringIngestController;
 use App\Http\Controllers\OtherServerController;
 use App\Http\Controllers\UserManagementController;
+use App\Http\Controllers\WebpageCheckController;
 use App\Http\Controllers\WordpressSiteController;
 use Illuminate\Support\Facades\Route;
 
@@ -40,6 +41,12 @@ Route::middleware('auth')->group(function () {
     Route::post('/other-servers/{otherServer}/test-connection', [OtherServerController::class, 'testConnection'])->middleware(['role:admin', 'throttle:10,1'])->name('other-servers.test-connection');
     Route::post('/other-servers/{otherServer}/patch-now', [OtherServerController::class, 'patchNow'])->middleware(['role:admin', 'throttle:10,1'])->name('other-servers.patch-now');
     Route::post('/other-servers/{otherServer}/update-details', [OtherServerController::class, 'updateDetails'])->middleware('role:admin')->name('other-servers.update-details');
+    Route::get('/webpage-checks', [WebpageCheckController::class, 'index'])->middleware('role:admin')->name('webpage-checks.index');
+    Route::post('/webpage-checks', [WebpageCheckController::class, 'store'])->middleware(['role:admin', 'throttle:10,1'])->name('webpage-checks.store');
+    Route::post('/webpage-checks/{webpageCheck}/run', [WebpageCheckController::class, 'run'])->middleware(['role:admin', 'throttle:10,1'])->name('webpage-checks.run');
+    Route::post('/webpage-checks/{webpageCheck}/toggle-active', [WebpageCheckController::class, 'toggleActive'])->middleware('role:admin')->name('webpage-checks.toggle-active');
+    Route::post('/webpage-checks/{webpageCheck}/required-elements', [WebpageCheckController::class, 'updateRequiredElements'])->middleware('role:admin')->name('webpage-checks.update-required-elements');
+    Route::delete('/webpage-checks/{webpageCheck}', [WebpageCheckController::class, 'destroy'])->middleware('role:admin')->name('webpage-checks.destroy');
 });
 
 Route::post('/ingest/wordpress/site/{wordpressSite:slug}', [WordpressSiteController::class, 'report'])

@@ -6,6 +6,7 @@ use App\Models\Ec2PatchStatus;
 use App\Models\OtherServer;
 use App\Models\TrafficEvent;
 use App\Models\User;
+use App\Models\WebpageCheck;
 use App\Models\WordpressCoreUpdate;
 use App\Models\WordpressLoginEvent;
 use App\Models\WordpressPluginUpdate;
@@ -96,16 +97,23 @@ class DashboardController extends Controller
             ->limit(25)
             ->get();
 
+        $webpageChecks = WebpageCheck::query()
+            ->orderByRaw("CASE last_status WHEN 'broken' THEN 0 WHEN 'warning' THEN 1 WHEN 'unknown' THEN 2 ELSE 3 END")
+            ->orderBy('name')
+            ->get();
+
         return view('dashboard', [
             'trafficLast24h' => TrafficEvent::query()->where('recorded_at', '>=', now()->subDay())->sum('visits'),
             'outdatedPlugins' => $plugins->where('status', 'outdated')->count(),
             'ec2MissingPatches' => $patchInstances->sum('missing_count'),
             'outdatedCoreSites' => $coreUpdates->where('status', 'outdated')->count(),
+            'webpageIssues' => $webpageChecks->whereIn('last_status', ['broken', 'warning'])->count(),
             'trafficRows' => $trafficRows,
             'plugins' => $plugins,
             'instances' => $patchInstances,
             'coreUpdates' => $coreUpdates,
             'recentLogins' => $recentLogins,
+            'webpageChecks' => $webpageChecks,
             'wordpressSites' => $request->user()->isAdmin()
                 ? WordpressSite::query()->orderBy('name')->get()
                 : collect(),
