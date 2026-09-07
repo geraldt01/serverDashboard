@@ -4,6 +4,9 @@
     <section class="panel" style="max-width:420px;margin:80px auto;padding:26px;">
         <h1>ServerDashboard</h1>
         <p class="muted" style="margin-bottom:22px;">WordPress, website traffic, and EC2 patch monitoring.</p>
+        @if(session('status'))
+            <p class="error">{{ session('status') }}</p>
+        @endif
         <form method="POST" action="{{ route('login.store') }}">
             @csrf
             <div style="margin-bottom:14px;"><label for="email">Email</label><input id="email" name="email" type="email" value="{{ old('email') }}" required autofocus></div>

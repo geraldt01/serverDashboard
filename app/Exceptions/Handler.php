@@ -3,6 +3,8 @@
 namespace App\Exceptions;
 
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
+use Illuminate\Http\Request;
+use Illuminate\Session\TokenMismatchException;
 use Throwable;
 
 class Handler extends ExceptionHandler
@@ -26,5 +28,19 @@ class Handler extends ExceptionHandler
         $this->reportable(function (Throwable $e) {
             //
         });
+    }
+
+    /**
+     * Redirect back with a friendly message instead of the default 419 page.
+     */
+    public function render($request, Throwable $e)
+    {
+        if ($e instanceof TokenMismatchException) {
+            return redirect()->back()
+                ->withInput($request->except(['password', 'password_confirmation']))
+                ->with('status', 'Your session expired. Please try again.');
+        }
+
+        return parent::render($request, $e);
     }
 }
