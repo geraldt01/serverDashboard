@@ -22,6 +22,16 @@ This workspace is configured for SQLite and XAMPP PHP.
 
 Open `http://127.0.0.1:8000/login`.
 
+### Scheduled Tasks (Frontend Page Checks)
+
+Registered webpages under **Frontend Page Checks** are re-checked automatically every hour via the `webpage-checks:run` command in Laravel's scheduler (`app/Console/Kernel.php`). The scheduler itself needs something invoking it every minute:
+
+- **Local development:** run `php artisan schedule:work` in a terminal and leave it running; it loops in the foreground and fires due tasks (no OS cron needed).
+- **Production (Linux):** add a single cron entry instead:
+  ```
+  * * * * * cd /path-to-app && php artisan schedule:run >> /dev/null 2>&1
+  ```
+
 ## Public Deployment URL
 
 Reporter endpoints are generated from `DASHBOARD_PUBLIC_URL`, not from a fixed local address. Keep the local values while developing:
