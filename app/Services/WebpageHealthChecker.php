@@ -5,7 +5,6 @@ namespace App\Services;
 use DOMDocument;
 use DOMXPath;
 use GuzzleHttp\Client;
-use GuzzleHttp\Exception\GuzzleException;
 
 /**
  * Performs a basic, HTML-level "frontend" health check against a webpage:
@@ -19,6 +18,7 @@ class WebpageHealthChecker
     private const MAX_VIDEOS = 10;
     private const REQUEST_TIMEOUT = 10;
     private const RESOURCE_TIMEOUT = 6;
+    private const MAX_TOTAL_SECONDS = 20;
 
     /**
      * @param array<int, string> $requiredElements
@@ -26,6 +26,35 @@ class WebpageHealthChecker
      */
     public function check(string $url, array $requiredElements = []): array
     {
+        try {
+            return $this->performCheck($url, $requiredElements);
+        } catch (\Throwable $exception) {
+            // Last line of defense: a check must never throw, or a caller could leave a
+            // record stuck at its 'unknown'/never-checked defaults with no result recorded.
+            report($exception);
+
+            return [
+                'status' => 'broken',
+                'http_status' => null,
+                'response_time_ms' => null,
+                'broken_images' => [],
+                'broken_videos' => [],
+                'missing_elements' => [],
+                'error' => 'Unexpected error while checking this page: ' . $this->shortMessage($exception),
+            ];
+        }
+    }
+
+    /**
+     * @param array<int, string> $requiredElements
+     * @return array{status:string,http_status:?int,response_time_ms:?int,broken_images:array,broken_videos:array,missing_elements:array,error:?string}
+     */
+    private function performCheck(string $url, array $requiredElements): array
+    {
+        // Guard against the web-triggered "Run check now" request hitting PHP's max_execution_time
+        // on pages with many resources; this only raises the limit, it never lowers an existing one.
+        @set_time_limit(60);
+
         $result = [
             'status' => 'broken',
             'http_status' => null,
@@ -47,7 +76,7 @@ class WebpageHealthChecker
 
         try {
             $response = $client->request('GET', $url);
-        } catch (GuzzleException $exception) {
+        } catch (\Throwable $exception) {
             $result['error'] = 'Could not load the page: ' . $this->shortMessage($exception);
 
             return $result;
@@ -70,11 +99,20 @@ class WebpageHealthChecker
             return $result;
         }
 
-        $xpath = new DOMXPath($this->parseHtml($html));
+        try {
+            $xpath = new DOMXPath($this->parseHtml($html));
 
-        $result['broken_images'] = $this->checkImages($xpath, $url, $client);
-        $result['broken_videos'] = $this->checkVideos($xpath, $url, $client);
-        $result['missing_elements'] = $this->checkRequiredElements($xpath, $requiredElements);
+            // Bounds the total time spent probing images/videos so one heavy page can't run away past the request's time limit.
+            $deadline = microtime(true) + self::MAX_TOTAL_SECONDS;
+
+            $result['broken_images'] = $this->checkImages($xpath, $url, $client, $deadline);
+            $result['broken_videos'] = $this->checkVideos($xpath, $url, $client, $deadline);
+            $result['missing_elements'] = $this->checkRequiredElements($xpath, $requiredElements);
+        } catch (\Throwable $exception) {
+            $result['error'] = 'Page loaded but could not be analyzed: ' . $this->shortMessage($exception);
+
+            return $result;
+        }
 
         $hasIssues = $result['broken_images'] !== [] || $result['broken_videos'] !== [] || $result['missing_elements'] !== [];
         $result['status'] = $hasIssues ? 'warning' : 'healthy';
@@ -97,13 +135,13 @@ class WebpageHealthChecker
     /**
      * @return array<int, array{src:string,reason:string}>
      */
-    private function checkImages(DOMXPath $xpath, string $baseUrl, Client $client): array
+    private function checkImages(DOMXPath $xpath, string $baseUrl, Client $client, float $deadline): array
     {
         $broken = [];
         $checked = 0;
 
         foreach ($xpath->query('//img[@src]') as $img) {
-            if ($checked >= self::MAX_IMAGES) {
+            if ($checked >= self::MAX_IMAGES || microtime(true) >= $deadline) {
                 break;
             }
 
@@ -130,7 +168,7 @@ class WebpageHealthChecker
     /**
      * @return array<int, array{src:string,reason:string}>
      */
-    private function checkVideos(DOMXPath $xpath, string $baseUrl, Client $client): array
+    private function checkVideos(DOMXPath $xpath, string $baseUrl, Client $client, float $deadline): array
     {
         $broken = [];
         $checked = 0;
@@ -147,7 +185,7 @@ class WebpageHealthChecker
         }
 
         foreach (array_unique($candidates) as $src) {
-            if ($checked >= self::MAX_VIDEOS) {
+            if ($checked >= self::MAX_VIDEOS || microtime(true) >= $deadline) {
                 break;
             }
 
@@ -257,7 +295,7 @@ class WebpageHealthChecker
             }
 
             return $status >= 400 ? "HTTP {$status}" : null;
-        } catch (GuzzleException $exception) {
+        } catch (\Throwable $exception) {
             return 'unreachable (' . $this->shortMessage($exception) . ')';
         }
     }
@@ -364,7 +402,7 @@ class WebpageHealthChecker
         return $dom;
     }
 
-    private function shortMessage(GuzzleException $exception): string
+    private function shortMessage(\Throwable $exception): string
     {
         $message = $exception->getMessage();
 
