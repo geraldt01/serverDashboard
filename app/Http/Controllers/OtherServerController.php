@@ -143,6 +143,8 @@ class OtherServerController extends Controller
                 'total_updates' => $total,
                 'security_updates' => $security,
                 'reboot_required' => $security > 0 && random_int(0, 3) === 0,
+                'php_version' => $otherServer->php_version ?: '8.1.2',
+                'php_update_available' => random_int(0, 3) === 0,
                 'last_reported_at' => now(),
             ]);
 
@@ -203,6 +205,8 @@ class OtherServerController extends Controller
             'totalUpdates' => ['required', 'integer', 'min:0', 'max:100000'],
             'securityUpdates' => ['required', 'integer', 'min:0', 'max:100000', 'lte:totalUpdates'],
             'rebootRequired' => ['required', 'boolean'],
+            'phpVersion' => ['nullable', 'string', 'max:40'],
+            'phpUpdateAvailable' => ['nullable', 'boolean'],
             'checkedAt' => ['nullable', 'date'],
         ]);
 
@@ -211,6 +215,8 @@ class OtherServerController extends Controller
             'total_updates' => $validated['totalUpdates'],
             'security_updates' => $validated['securityUpdates'],
             'reboot_required' => $validated['rebootRequired'],
+            'php_version' => $validated['phpVersion'] ?? $otherServer->php_version,
+            'php_update_available' => $validated['phpUpdateAvailable'] ?? false,
             'last_reported_at' => $validated['checkedAt'] ?? now(),
         ]);
 

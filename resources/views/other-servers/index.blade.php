@@ -33,7 +33,7 @@
         <h2>Registered Servers</h2>
         <div class="scroll">
             <table>
-                <thead><tr><th>Server</th><th>Status</th><th>OS</th><th>Last report</th><th>Updates</th><th>Security updates</th><th>Reboot</th><th>Security actions</th></tr></thead>
+                <thead><tr><th>Server</th><th>Status</th><th>OS</th><th>Last report</th><th>Updates</th><th>Security updates</th><th>Reboot</th><th>PHP</th><th>Security actions</th></tr></thead>
                 <tbody>
                 @forelse($otherServers as $server)
                     <tr>
@@ -44,6 +44,7 @@
                         <td>{{ $server->total_updates }}</td>
                         <td><span class="badge {{ $server->security_updates > 0 ? 'danger' : 'ok' }}">{{ $server->security_updates }}</span></td>
                         <td><span class="badge {{ $server->reboot_required ? 'warning' : 'ok' }}">{{ $server->reboot_required ? 'required' : 'no' }}</span></td>
+                        <td>{{ $server->php_version ?? '—' }}@if($server->php_update_available)<br><span class="badge warning">update available</span>@endif</td>
                         <td>
                             <div class="actions">
                                 <form method="POST" action="{{ route('other-servers.test-connection', $server) }}">@csrf<button type="submit" class="secondary" @if(! $server->hostname) disabled title="Set a hostname to test connectivity" @endif>Test connection</button></form>
@@ -64,7 +65,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="8">No servers registered yet.</td></tr>
+                    <tr><td colspan="9">No servers registered yet.</td></tr>
                 @endforelse
                 </tbody>
             </table>
@@ -114,10 +115,19 @@ REBOOT=false
 [[ -f /var/run/reboot-required ]] && REBOOT=true
 
 OS_NAME=$(. /etc/os-release; echo "$PRETTY_NAME")
+
+PHP_VERSION=""
+PHP_UPDATE_AVAILABLE=false
+if command -v php >/dev/null 2>&1; then
+    PHP_VERSION=$(php -r 'echo PHP_VERSION;')
+    PHP_PKG_UPGRADES=$(apt list --upgradable 2>/dev/null | grep -c -E '^php[0-9.]*(-|/| )')
+    [[ "$PHP_PKG_UPGRADES" -gt 0 ]] && PHP_UPDATE_AVAILABLE=true
+fi
+
 CHECKED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-BODY=$(printf '{"osName":"%s","totalUpdates":%d,"securityUpdates":%d,"rebootRequired":%s,"checkedAt":"%s"}' \
-    "$OS_NAME" "$TOTAL" "$SECURITY" "$REBOOT" "$CHECKED_AT")
+BODY=$(printf '{"osName":"%s","totalUpdates":%d,"securityUpdates":%d,"rebootRequired":%s,"phpVersion":"%s","phpUpdateAvailable":%s,"checkedAt":"%s"}' \
+    "$OS_NAME" "$TOTAL" "$SECURITY" "$REBOOT" "$PHP_VERSION" "$PHP_UPDATE_AVAILABLE" "$CHECKED_AT")
 
 TIMESTAMP=$(date +%s)
 NONCE=$(openssl rand -hex 16)

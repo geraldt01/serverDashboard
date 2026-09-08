@@ -20,12 +20,15 @@ class OtherServer extends Model
         'total_updates',
         'security_updates',
         'reboot_required',
+        'php_version',
+        'php_update_available',
         'last_reported_at',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'reboot_required' => 'boolean',
+        'php_update_available' => 'boolean',
         'last_reported_at' => 'datetime',
         'monitor_token_encrypted' => 'encrypted',
     ];
