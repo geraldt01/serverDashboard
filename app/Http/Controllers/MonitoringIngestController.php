@@ -124,29 +124,6 @@ class MonitoringIngestController extends Controller
 
     private function mockEc2PatchStatuses(): array
     {
-        return [
-            [
-                'instance_id' => 'i-0a1b2c3d4e5f001',
-                'instance_name' => 'wp-prod-1',
-                'missing_count' => 4,
-                'security_count' => 3,
-                'installed_count' => 112,
-                'failed_count' => 0,
-                'reboot_required' => true,
-                'os_version' => 'Ubuntu 22.04',
-                'checked_at' => now(),
-            ],
-            [
-                'instance_id' => 'i-0a1b2c3d4e5f002',
-                'instance_name' => 'api-prod-1',
-                'missing_count' => 0,
-                'security_count' => 0,
-                'installed_count' => 97,
-                'failed_count' => 0,
-                'reboot_required' => false,
-                'os_version' => 'Amazon Linux 2023',
-                'checked_at' => now(),
-            ],
-        ];
+        return [];
     }
 }
