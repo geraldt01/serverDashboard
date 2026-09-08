@@ -143,8 +143,6 @@ class OtherServerController extends Controller
                 'total_updates' => $total,
                 'security_updates' => $security,
                 'reboot_required' => $security > 0 && random_int(0, 3) === 0,
-                'php_version' => $otherServer->php_version ?: '8.1.2',
-                'php_update_available' => random_int(0, 3) === 0,
                 'last_reported_at' => now(),
             ]);
 

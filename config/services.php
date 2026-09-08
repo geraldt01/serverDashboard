@@ -33,7 +33,7 @@ return [
 
     'monitoring' => [
         'ingest_key' => env('MONITOR_INGEST_KEY'),
-        'mock_mode' => env('AWS_SYNC_USE_MOCK', true),
+        'mock_mode' => env('AWS_SYNC_USE_MOCK', false),
     ],
 
 ];
