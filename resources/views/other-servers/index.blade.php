@@ -107,8 +107,8 @@ if [[ -x /usr/lib/update-notifier/apt-check ]]; then
     TOTAL=$(cut -d';' -f1 <<< "$COUNTS")
     SECURITY=$(cut -d';' -f2 <<< "$COUNTS")
 else
-    TOTAL=$(apt list --upgradable 2>/dev/null | grep -c '^[^L]')
-    SECURITY=$(apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst.*security')
+    TOTAL=$(apt list --upgradable 2>/dev/null | grep -c '^[^L]' || true)
+    SECURITY=$(apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst.*security' || true)
 fi
 
 REBOOT=false
@@ -120,7 +120,7 @@ PHP_VERSION=""
 PHP_UPDATE_AVAILABLE=false
 if command -v php >/dev/null 2>&1; then
     PHP_VERSION=$(php -r 'echo PHP_VERSION;')
-    PHP_PKG_UPGRADES=$(apt list --upgradable 2>/dev/null | grep -c -E '^php[0-9.]*(-|/| )')
+    PHP_PKG_UPGRADES=$(apt list --upgradable 2>/dev/null | grep -c -E '^php[0-9.]*(-|/| )' || true)
     [[ "$PHP_PKG_UPGRADES" -gt 0 ]] && PHP_UPDATE_AVAILABLE=true
 fi
 
