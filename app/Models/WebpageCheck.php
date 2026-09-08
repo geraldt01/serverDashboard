@@ -59,7 +59,10 @@ class WebpageCheck extends Model
             $issues[] = $result['error'];
         }
 
-        $this->update([
+        // forceFill(): these are computed/internal fields, not user input, and aren't (and
+        // shouldn't be) in $fillable — a plain update() here silently drops them instead of
+        // persisting, since $fillable is non-empty so Eloquent doesn't throw to warn us.
+        $this->forceFill([
             'last_status' => $result['error'] ? 'broken' : $result['status'],
             'last_http_status' => $result['http_status'],
             'last_response_time_ms' => $result['response_time_ms'],
@@ -69,6 +72,6 @@ class WebpageCheck extends Model
             'issues' => $issues,
             'last_error' => $result['error'],
             'last_checked_at' => now(),
-        ]);
+        ])->save();
     }
 }
