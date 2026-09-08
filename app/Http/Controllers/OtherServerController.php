@@ -69,11 +69,13 @@ class OtherServerController extends Controller
     public function updateDetails(Request $request, OtherServer $otherServer)
     {
         $validated = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
             'hostname' => ['nullable', 'string', 'max:255'],
             'awsInstanceId' => ['nullable', 'string', 'regex:/^i-[0-9a-f]{8,17}$/'],
         ]);
 
         $otherServer->update([
+            'name' => $validated['name'],
             'hostname' => $validated['hostname'] ?? null,
             'aws_instance_id' => $validated['awsInstanceId'] ?? null,
         ]);
