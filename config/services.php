@@ -31,6 +31,10 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'aws' => [
+        'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+    ],
+
     'monitoring' => [
         'ingest_key' => env('MONITOR_INGEST_KEY'),
         'mock_mode' => env('AWS_SYNC_USE_MOCK', false),

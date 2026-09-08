@@ -73,7 +73,7 @@ class MonitoringIngestController extends Controller
         }
 
         try {
-            $region = config('services.ses.region');
+            $region = config('services.aws.region');
             $ec2 = new Ec2Client(['version' => 'latest', 'region' => $region]);
             $ssm = new SsmClient(['version' => 'latest', 'region' => $region]);
             $result = $ec2->describeInstances();

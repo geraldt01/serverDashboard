@@ -151,7 +151,7 @@ class OtherServerController extends Controller
         }
 
         try {
-            $ssm = new SsmClient(['version' => 'latest', 'region' => config('services.ses.region')]);
+            $ssm = new SsmClient(['version' => 'latest', 'region' => config('services.aws.region')]);
             $result = $ssm->sendCommand([
                 'InstanceIds' => [$instanceId],
                 'DocumentName' => 'AWS-RunShellScript',
