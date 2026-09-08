@@ -133,8 +133,19 @@ class OtherServerController extends Controller
         }
 
         if (config('services.monitoring.mock_mode')) {
+            $security = random_int(0, 5);
+            $total = $security + random_int(0, 15);
+
+            $otherServer->update([
+                'os_name' => $otherServer->os_name ?: 'Ubuntu 24.04.4 LTS',
+                'total_updates' => $total,
+                'security_updates' => $security,
+                'reboot_required' => $security > 0 && random_int(0, 3) === 0,
+                'last_reported_at' => now(),
+            ]);
+
             return redirect()->route('other-servers.index')
-                ->with('status', "(Mock mode) Patch check triggered for {$otherServer->name}. It will report new figures on its next push.");
+                ->with('status', "(Mock mode) Patch check triggered for {$otherServer->name}. Figures updated immediately (simulated push).");
         }
 
         try {
