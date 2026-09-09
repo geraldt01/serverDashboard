@@ -85,10 +85,10 @@ sudo tee /etc/serverdashboard/agent.env >/dev/null <<'EOF'
 DASHBOARD_ENDPOINT="https://your-dashboard-domain/ingest/other-server/<slug>/report"
 DASHBOARD_TOKEN="<paste the one-time token here>"
 EOF
-sudo chown root:root /etc/serverdashboard/agent.env
+sudo chown nobody /etc/serverdashboard/agent.env
 sudo chmod 600 /etc/serverdashboard/agent.env</textarea>
         @endverbatim
-        <p class="muted">Use the exact <strong>Endpoint</strong> and <strong>Token</strong> shown once above. <code>chmod 600</code> ensures only root can read the token.</p>
+        <p class="muted">Use the exact <strong>Endpoint</strong> and <strong>Token</strong> shown once above. The service in step 3 runs as the unprivileged <code>nobody</code> user, so the file is owned by <code>nobody</code>; <code>chmod 600</code> still ensures no other user account can read the token.</p>
 
         <h3>2. Install the agent script</h3>
         @verbatim
@@ -145,7 +145,11 @@ OS_NAME=$(. /etc/os-release; echo "$PRETTY_NAME")
 PHP_VERSION=""
 PHP_UPDATE_AVAILABLE=false
 if command -v php >/dev/null 2>&1; then
-    PHP_VERSION=$(php -r 'echo PHP_VERSION;')
+    PHP_VERSION=$(php -r 'echo PHP_VERSION;' 2>/dev/null) || true
+    if [[ -z "$PHP_VERSION" ]]; then
+        # Some restricted/suEXEC php CLI wrappers (common on WHM/cPanel boxes) reject -r; fall back to parsing `php -v`.
+        PHP_VERSION=$(php -v 2>/dev/null | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+    fi
     case "$PKG_MGR" in
         apt)
             PHP_PKG_UPGRADES=$(apt list --upgradable 2>/dev/null | grep -c -E '^php[0-9.]*(-|/| )' || true)
@@ -178,10 +182,10 @@ curl --fail --silent --show-error --tlsv1.2 \
     --data-raw "$BODY" \
     "$DASHBOARD_ENDPOINT"
 EOF
-sudo chmod 750 /usr/local/bin/serverdashboard-agent.sh
+sudo chmod 755 /usr/local/bin/serverdashboard-agent.sh
 sudo chown root:root /usr/local/bin/serverdashboard-agent.sh</textarea>
         @endverbatim
-        <p class="muted">The script never needs <code>sudo</code>/root privileges at runtime &mdash; <code>apt-check</code> and the package lists it reads are world-readable, and Ubuntu's own <code>apt-daily.timer</code> already refreshes them. The token only grants permission to submit update counts, nothing else.</p>
+        <p class="muted">The script never needs <code>sudo</code>/root privileges at runtime &mdash; <code>apt-check</code>/<code>yum</code>/<code>dnf</code> and the package lists they read are world-readable, and the OS's own daily update-check timer already refreshes them. <code>755</code> lets the unprivileged <code>nobody</code> service account (step 3) execute it, but only root can modify it. The token only grants permission to submit update counts, nothing else.</p>
 
         <h3>3. Run it on a schedule with systemd (not root cron)</h3>
         @verbatim
