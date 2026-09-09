@@ -3,7 +3,7 @@
 @section('content')
     @include('partials.admin-sidebar')
     <header class="panel topbar">
-        <div><h1>Other Servers</h1><p class="muted">Track OS update status for Ubuntu/EC2 servers outside WordPress.</p></div>
+        <div><h1>Other Servers</h1><p class="muted">Track OS update status for Ubuntu/CentOS/RHEL EC2 servers outside WordPress.</p></div>
         <form method="POST" action="{{ route('logout') }}">@csrf<button type="submit" class="secondary">Sign out</button></form>
     </header>
 
@@ -92,7 +92,7 @@ sudo chmod 600 /etc/serverdashboard/agent.env</textarea>
 
         <h3>2. Install the agent script</h3>
         @verbatim
-        <textarea readonly rows="36" style="width:100%;font-family:monospace;font-size:12px;">sudo tee /usr/local/bin/serverdashboard-agent.sh >/dev/null <<'EOF'
+        <textarea readonly rows="48" style="width:100%;font-family:monospace;font-size:12px;">sudo tee /usr/local/bin/serverdashboard-agent.sh >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -102,17 +102,43 @@ source "$CONFIG_FILE"
 : "${DASHBOARD_ENDPOINT:?not set}"
 : "${DASHBOARD_TOKEN:?not set}"
 
-if [[ -x /usr/lib/update-notifier/apt-check ]]; then
-    COUNTS=$(/usr/lib/update-notifier/apt-check 2>&1 >/dev/null)
-    TOTAL=$(cut -d';' -f1 <<< "$COUNTS")
-    SECURITY=$(cut -d';' -f2 <<< "$COUNTS")
-else
-    TOTAL=$(apt list --upgradable 2>/dev/null | grep -c '^[^L]' || true)
-    SECURITY=$(apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst.*security' || true)
+PKG_MGR=""
+if command -v apt-get >/dev/null 2>&1; then
+    PKG_MGR="apt"
+elif command -v dnf >/dev/null 2>&1; then
+    PKG_MGR="dnf"
+elif command -v yum >/dev/null 2>&1; then
+    PKG_MGR="yum"
 fi
 
-REBOOT=false
-[[ -f /var/run/reboot-required ]] && REBOOT=true
+case "$PKG_MGR" in
+    apt)
+        if [[ -x /usr/lib/update-notifier/apt-check ]]; then
+            COUNTS=$(/usr/lib/update-notifier/apt-check 2>&1 >/dev/null)
+            TOTAL=$(cut -d';' -f1 <<< "$COUNTS")
+            SECURITY=$(cut -d';' -f2 <<< "$COUNTS")
+        else
+            TOTAL=$(apt list --upgradable 2>/dev/null | grep -c '^[^L]' || true)
+            SECURITY=$(apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst.*security' || true)
+        fi
+        REBOOT=false
+        [[ -f /var/run/reboot-required ]] && REBOOT=true
+        ;;
+    dnf|yum)
+        # check-update exits 100 when updates are available; harmless here since grep (not check-update) is the last stage of the pipe.
+        TOTAL=$("$PKG_MGR" -q check-update 2>/dev/null | grep -c -E '^[A-Za-z0-9]' || true)
+        SECURITY=$("$PKG_MGR" -q check-update --security 2>/dev/null | grep -c -E '^[A-Za-z0-9]' || true)
+        REBOOT=false
+        if command -v needs-restarting >/dev/null 2>&1; then
+            needs-restarting -r >/dev/null 2>&1 || REBOOT=true
+        fi
+        ;;
+    *)
+        TOTAL=0
+        SECURITY=0
+        REBOOT=false
+        ;;
+esac
 
 OS_NAME=$(. /etc/os-release; echo "$PRETTY_NAME")
 
@@ -120,7 +146,17 @@ PHP_VERSION=""
 PHP_UPDATE_AVAILABLE=false
 if command -v php >/dev/null 2>&1; then
     PHP_VERSION=$(php -r 'echo PHP_VERSION;')
-    PHP_PKG_UPGRADES=$(apt list --upgradable 2>/dev/null | grep -c -E '^php[0-9.]*(-|/| )' || true)
+    case "$PKG_MGR" in
+        apt)
+            PHP_PKG_UPGRADES=$(apt list --upgradable 2>/dev/null | grep -c -E '^php[0-9.]*(-|/| )' || true)
+            ;;
+        dnf|yum)
+            PHP_PKG_UPGRADES=$("$PKG_MGR" -q check-update 2>/dev/null | grep -c -E '^php[0-9.]*[-.]' || true)
+            ;;
+        *)
+            PHP_PKG_UPGRADES=0
+            ;;
+    esac
     [[ "$PHP_PKG_UPGRADES" -gt 0 ]] && PHP_UPDATE_AVAILABLE=true
 fi
 
