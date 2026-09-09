@@ -340,7 +340,7 @@ icacls 'C:\ProgramData\ServerDashboard\agent.ps1' /grant:r 'SYSTEM:(RX)' 'BUILTI
         <h3>3. Run it on a schedule with Task Scheduler</h3>
         @verbatim
         <textarea readonly rows="16" style="width:100%;font-family:monospace;font-size:12px;">$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\ServerDashboard\agent.ps1"'
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 3) -RepetitionDuration ([TimeSpan]::MaxValue)
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 3) -RepetitionDuration (New-TimeSpan -Days 3650)
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
 

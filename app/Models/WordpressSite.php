@@ -18,6 +18,9 @@ class WordpressSite extends Model
         'ip_whitelist',
         'last_plugin_count',
         'last_outdated_count',
+        'last_core_current_version',
+        'last_core_latest_version',
+        'last_core_status',
         'last_reported_at',
     ];
 

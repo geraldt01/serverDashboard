@@ -126,6 +126,9 @@ class WordpressSiteController extends Controller
         $wordpressSite->update([
             'last_plugin_count' => count($records),
             'last_outdated_count' => collect($records)->where('status', 'outdated')->count(),
+            'last_core_current_version' => $validated['core']['currentVersion'] ?? $wordpressSite->last_core_current_version,
+            'last_core_latest_version' => $validated['core']['latestVersion'] ?? $wordpressSite->last_core_latest_version,
+            'last_core_status' => $validated['core']['status'] ?? $wordpressSite->last_core_status,
             'last_reported_at' => $checkedAt,
         ]);
 
