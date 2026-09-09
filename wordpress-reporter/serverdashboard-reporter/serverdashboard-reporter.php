@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ServerDashboard Plugin Reporter
  * Description: Securely reports installed WordPress plugin/core update status and wp-admin logins to ServerDashboard.
- * Version: 1.2.0
+ * Version: 1.3.0
  * Requires at least: 5.8
  * Requires PHP: 7.4
  * License: GPL-2.0-or-later
@@ -15,6 +15,9 @@ if (! defined('ABSPATH')) {
 const SERVER_DASHBOARD_REPORTER_OPTION = 'serverdashboard_reporter_settings';
 const SERVER_DASHBOARD_REPORTER_AUDIT_OPTION = 'serverdashboard_reporter_audit_log';
 const SERVER_DASHBOARD_REPORTER_CRON = 'serverdashboard_reporter_daily_report';
+const SERVER_DASHBOARD_REPORTER_SCHEDULE = 'serverdashboard_six_hourly';
+const SERVER_DASHBOARD_REPORTER_VERSION = '1.3.0';
+const SERVER_DASHBOARD_REPORTER_VERSION_OPTION = 'serverdashboard_reporter_version';
 const SERVER_DASHBOARD_REPORTER_MAX_AUDIT_EVENTS = 20;
 
 function serverdashboard_reporter_audit(string $event, string $message): void
@@ -422,6 +425,40 @@ function serverdashboard_reporter_admin_notice(): void
     printf('<div class="notice %1$s is-dismissible"><p>%2$s</p></div>', esc_attr($class), esc_html(rawurldecode((string) $_GET['serverdashboard_message'])));
 }
 
+function serverdashboard_reporter_cron_schedules(array $schedules): array
+{
+    $schedules[SERVER_DASHBOARD_REPORTER_SCHEDULE] = [
+        'interval' => 6 * HOUR_IN_SECONDS,
+        'display' => __('Every 6 hours (ServerDashboard)', 'serverdashboard-reporter'),
+    ];
+
+    return $schedules;
+}
+
+function serverdashboard_reporter_schedule_cron(): void
+{
+    $scheduledEvent = wp_get_scheduled_event(SERVER_DASHBOARD_REPORTER_CRON);
+    if ($scheduledEvent && $scheduledEvent->schedule === SERVER_DASHBOARD_REPORTER_SCHEDULE) {
+        return;
+    }
+
+    if ($scheduledEvent) {
+        wp_unschedule_event($scheduledEvent->timestamp, SERVER_DASHBOARD_REPORTER_CRON);
+    }
+
+    wp_schedule_event(time() + HOUR_IN_SECONDS, SERVER_DASHBOARD_REPORTER_SCHEDULE, SERVER_DASHBOARD_REPORTER_CRON);
+}
+
+function serverdashboard_reporter_maybe_upgrade(): void
+{
+    if (get_option(SERVER_DASHBOARD_REPORTER_VERSION_OPTION) === SERVER_DASHBOARD_REPORTER_VERSION) {
+        return;
+    }
+
+    serverdashboard_reporter_schedule_cron();
+    update_option(SERVER_DASHBOARD_REPORTER_VERSION_OPTION, SERVER_DASHBOARD_REPORTER_VERSION, false);
+}
+
 function serverdashboard_reporter_activate(): void
 {
     if (! function_exists('openssl_encrypt')) {
@@ -429,9 +466,8 @@ function serverdashboard_reporter_activate(): void
         wp_die('ServerDashboard Reporter requires the PHP OpenSSL extension for encrypted token storage.');
     }
 
-    if (! wp_next_scheduled(SERVER_DASHBOARD_REPORTER_CRON)) {
-        wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', SERVER_DASHBOARD_REPORTER_CRON);
-    }
+    serverdashboard_reporter_schedule_cron();
+    update_option(SERVER_DASHBOARD_REPORTER_VERSION_OPTION, SERVER_DASHBOARD_REPORTER_VERSION, false);
 }
 
 function serverdashboard_reporter_deactivate(): void
@@ -442,6 +478,8 @@ function serverdashboard_reporter_deactivate(): void
     }
 }
 
+add_filter('cron_schedules', 'serverdashboard_reporter_cron_schedules');
+add_action('init', 'serverdashboard_reporter_maybe_upgrade');
 add_action('admin_init', 'serverdashboard_reporter_register_settings');
 add_action('admin_menu', fn () => add_options_page('ServerDashboard Reporter', 'ServerDashboard Reporter', 'manage_options', 'serverdashboard-reporter', 'serverdashboard_reporter_render_settings'));
 add_action('admin_post_serverdashboard_report_now', 'serverdashboard_reporter_handle_manual_report');
