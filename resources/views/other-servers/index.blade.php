@@ -170,16 +170,16 @@ BODY=$(printf '{"osName":"%s","totalUpdates":%d,"securityUpdates":%d,"rebootRequ
     "$OS_NAME" "$TOTAL" "$SECURITY" "$REBOOT" "$PHP_VERSION" "$PHP_UPDATE_AVAILABLE" "$CHECKED_AT")
 
 TIMESTAMP=$(date +%s)
-NONCE=$(openssl rand -hex 16)
+NONCE=$(RANDFILE=/dev/null openssl rand -hex 16)
 SIGNATURE=$(printf '%s.%s.%s' "$TIMESTAMP" "$NONCE" "$BODY" \
-    | openssl dgst -sha256 -hmac "$DASHBOARD_TOKEN" | awk '{print $2}')
+    | RANDFILE=/dev/null openssl dgst -sha256 -hmac "$DASHBOARD_TOKEN" | awk '{print $2}')
 
 curl --fail --silent --show-error --tlsv1.2 \
     -H "Content-Type: application/json" \
     -H "X-Server-Monitor-Timestamp: $TIMESTAMP" \
     -H "X-Server-Monitor-Nonce: $NONCE" \
     -H "X-Server-Monitor-Signature: $SIGNATURE" \
-    --data-raw "$BODY" \
+    --data "$BODY" \
     "$DASHBOARD_ENDPOINT"
 EOF
 sudo chmod 755 /usr/local/bin/serverdashboard-agent.sh
@@ -231,6 +231,127 @@ sudo systemctl enable --now serverdashboard-agent.timer</textarea>
             <li><strong>Secrets at rest:</strong> the token file is <code>chmod 600</code>, root-owned, and never appears in shell history, process arguments, or logs.</li>
             <li><strong>Rotation:</strong> use "Rotate token" above immediately if a token may have leaked; the previous token stops working instantly.</li>
         </ul>
+
+        <h2 style="margin-top:18px;">Connecting a Windows Server (PowerShell Agent)</h2>
+        <p class="muted">Same push model as above &mdash; no inbound access needed &mdash; but implemented in PowerShell using the built-in Windows Update Agent API, run on a schedule via Task Scheduler instead of systemd.</p>
+
+        <h3>1. Store the credentials securely (as Administrator)</h3>
+        @verbatim
+        <textarea readonly rows="10" style="width:100%;font-family:monospace;font-size:12px;">New-Item -ItemType Directory -Force -Path 'C:\ProgramData\ServerDashboard' | Out-Null
+@'
+DASHBOARD_ENDPOINT="https://your-dashboard-domain/ingest/other-server/<slug>/report"
+DASHBOARD_TOKEN="<paste the one-time token here>"
+'@ | Set-Content -Path 'C:\ProgramData\ServerDashboard\agent.env' -Encoding utf8
+
+# Restrict the file to Administrators and SYSTEM only
+icacls 'C:\ProgramData\ServerDashboard\agent.env' /inheritance:r | Out-Null
+icacls 'C:\ProgramData\ServerDashboard\agent.env' /grant:r 'SYSTEM:(R)' 'BUILTIN\Administrators:(F)' | Out-Null</textarea>
+        @endverbatim
+        <p class="muted">Use the exact <strong>Endpoint</strong> and <strong>Token</strong> shown once above. The scheduled task in step 3 runs as <code>SYSTEM</code>, which is granted read access; no other account can read the token.</p>
+
+        <h3>2. Install the agent script</h3>
+        @verbatim
+        <textarea readonly rows="46" style="width:100%;font-family:monospace;font-size:12px;">@'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$ErrorActionPreference = "Stop"
+
+$ConfigFile = "C:\ProgramData\ServerDashboard\agent.env"
+if (-not (Test-Path $ConfigFile)) { Write-Error "Missing $ConfigFile"; exit 1 }
+
+$config = @{}
+Get-Content $ConfigFile | ForEach-Object {
+    if ($_ -match "^\s*([A-Z_]+)\s*=\s*`"?([^`"]*)`"?\s*$") { $config[$matches[1]] = $matches[2] }
+}
+$DashboardEndpoint = $config["DASHBOARD_ENDPOINT"]
+$DashboardToken = $config["DASHBOARD_TOKEN"]
+if (-not $DashboardEndpoint) { Write-Error "DASHBOARD_ENDPOINT not set"; exit 1 }
+if (-not $DashboardToken) { Write-Error "DASHBOARD_TOKEN not set"; exit 1 }
+
+$total = 0
+$security = 0
+try {
+    $updateSession = New-Object -ComObject Microsoft.Update.Session
+    $updateSearcher = $updateSession.CreateUpdateSearcher()
+    $searchResult = $updateSearcher.Search("IsInstalled=0 and IsHidden=0")
+    $total = $searchResult.Updates.Count
+    foreach ($update in $searchResult.Updates) {
+        foreach ($category in $update.Categories) {
+            if ($category.Name -eq "Security Updates") { $security++; break }
+        }
+    }
+} catch {
+    # Leave counts at 0 if the Windows Update Agent API is unavailable/blocked
+}
+
+$rebootRequired = $false
+$rebootPaths = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+    "HKLM:\SOFTWARE\Microsoft\Updates\UpdateExeVolatile"
+)
+foreach ($path in $rebootPaths) { if (Test-Path $path) { $rebootRequired = $true; break } }
+
+$osName = (Get-CimInstance Win32_OperatingSystem).Caption
+
+$phpVersion = ""
+$phpUpdateAvailable = $false
+if (Get-Command php -ErrorAction SilentlyContinue) {
+    $verOutput = & php -v 2>$null | Select-Object -First 1
+    if ($verOutput -match "(\d+\.\d+\.\d+)") { $phpVersion = $matches[1] }
+}
+
+$checkedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+$bodyObject = [ordered]@{
+    osName = $osName
+    totalUpdates = $total
+    securityUpdates = $security
+    rebootRequired = $rebootRequired
+    phpVersion = $phpVersion
+    phpUpdateAvailable = $phpUpdateAvailable
+    checkedAt = $checkedAt
+}
+$body = $bodyObject | ConvertTo-Json -Compress
+
+$timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$nonce = -join ((1..32) | ForEach-Object { "{0:x}" -f (Get-Random -Maximum 16) })
+
+$hmac = New-Object System.Security.Cryptography.HMACSHA256
+$hmac.Key = [System.Text.Encoding]::UTF8.GetBytes($DashboardToken)
+$signingInput = "$timestamp.$nonce.$body"
+$hashBytes = $hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($signingInput))
+$signature = ($hashBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+
+$bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+$headers = @{
+    "X-Server-Monitor-Timestamp" = "$timestamp"
+    "X-Server-Monitor-Nonce" = $nonce
+    "X-Server-Monitor-Signature" = $signature
+}
+
+Invoke-RestMethod -Uri $DashboardEndpoint -Method Post -Headers $headers -Body $bodyBytes -ContentType "application/json"
+'@ | Set-Content -Path 'C:\ProgramData\ServerDashboard\agent.ps1' -Encoding utf8
+
+icacls 'C:\ProgramData\ServerDashboard\agent.ps1' /inheritance:r | Out-Null
+icacls 'C:\ProgramData\ServerDashboard\agent.ps1' /grant:r 'SYSTEM:(RX)' 'BUILTIN\Administrators:(F)' | Out-Null</textarea>
+        @endverbatim
+        <p class="muted">Uses the built-in Windows Update Agent COM API &mdash; no extra modules (like PSWindowsUpdate) need to be installed. If PHP isn't on the system <code>PATH</code>, <code>phpVersion</code> is simply left blank (nullable server-side), same as the Linux agent.</p>
+
+        <h3>3. Run it on a schedule with Task Scheduler</h3>
+        @verbatim
+        <textarea readonly rows="16" style="width:100%;font-family:monospace;font-size:12px;">$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File "C:\ProgramData\ServerDashboard\agent.ps1"'
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 3) -RepetitionDuration ([TimeSpan]::MaxValue)
+$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Limited
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
+
+Register-ScheduledTask -TaskName 'ServerDashboard Agent' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force
+
+# Run it once immediately to verify it works
+Start-ScheduledTask -TaskName 'ServerDashboard Agent'
+Start-Sleep -Seconds 5
+Get-ScheduledTaskInfo -TaskName 'ServerDashboard Agent'</textarea>
+        @endverbatim
+        <p class="muted">Runs as the built-in <code>SYSTEM</code> account (needed to reliably query all pending updates via the Windows Update Agent API) every 3 hours. Check <code>Event Viewer &rarr; Windows Logs &rarr; System</code> or re-run <code>Start-ScheduledTask</code> manually if a report doesn't appear.</p>
 
         <h2 style="margin-top:18px;">Hardening Direct SSH Access to These Servers</h2>
         <p class="muted">The agent above removes the need for SSH just to check for updates, but you'll still SSH in for real administration. Harden that path too:</p>
