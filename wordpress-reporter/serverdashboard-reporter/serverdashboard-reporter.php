@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ServerDashboard Plugin Reporter
  * Description: Securely reports installed WordPress plugin/core update status and wp-admin logins to ServerDashboard.
- * Version: 1.3.0
+ * Version: 1.4.0
  * Requires at least: 5.8
  * Requires PHP: 7.4
  * License: GPL-2.0-or-later
@@ -16,9 +16,10 @@ const SERVER_DASHBOARD_REPORTER_OPTION = 'serverdashboard_reporter_settings';
 const SERVER_DASHBOARD_REPORTER_AUDIT_OPTION = 'serverdashboard_reporter_audit_log';
 const SERVER_DASHBOARD_REPORTER_CRON = 'serverdashboard_reporter_daily_report';
 const SERVER_DASHBOARD_REPORTER_SCHEDULE = 'serverdashboard_six_hourly';
-const SERVER_DASHBOARD_REPORTER_VERSION = '1.3.0';
+const SERVER_DASHBOARD_REPORTER_VERSION = '1.4.0';
 const SERVER_DASHBOARD_REPORTER_VERSION_OPTION = 'serverdashboard_reporter_version';
 const SERVER_DASHBOARD_REPORTER_MAX_AUDIT_EVENTS = 20;
+const SERVER_DASHBOARD_REPORTER_TRIGGER_NONCE_PREFIX = 'sdr_trigger_nonce_';
 
 function serverdashboard_reporter_audit(string $event, string $message): void
 {
@@ -425,6 +426,64 @@ function serverdashboard_reporter_admin_notice(): void
     printf('<div class="notice %1$s is-dismissible"><p>%2$s</p></div>', esc_attr($class), esc_html(rawurldecode((string) $_GET['serverdashboard_message'])));
 }
 
+/**
+ * REST route the dashboard calls to ask this site for an immediate report, so an admin
+ * clicking "Sync EC2 updates" on the dashboard also gets fresh WordPress data right away
+ * instead of waiting for the next 6-hourly cron run.
+ */
+function serverdashboard_reporter_register_rest_routes(): void
+{
+    register_rest_route('serverdashboard/v1', '/trigger-report', [
+        'methods' => 'POST',
+        'callback' => 'serverdashboard_reporter_handle_trigger_report',
+        'permission_callback' => '__return_true',
+    ]);
+}
+
+/**
+ * Authenticates the same way outbound reports are signed (HMAC-SHA256 over
+ * timestamp.nonce.body using the shared site token), but in reverse: the dashboard is the
+ * caller here, so the token is the only secret proving the request is genuine.
+ */
+function serverdashboard_reporter_handle_trigger_report(\WP_REST_Request $request)
+{
+    $settings = serverdashboard_reporter_settings();
+    if ($settings['token'] === '') {
+        return new \WP_REST_Response(['ok' => false, 'message' => 'Reporter is not configured.'], 403);
+    }
+
+    $timestamp = (string) $request->get_header('x_serverdashboard_timestamp');
+    $nonce = (string) $request->get_header('x_serverdashboard_nonce');
+    $signature = (string) $request->get_header('x_serverdashboard_signature');
+    $body = (string) $request->get_body();
+
+    if (! preg_match('/\A[0-9]{1,20}\z/', $timestamp) || ! preg_match('/\A[a-f0-9]{32}\z/i', $nonce) || ! preg_match('/\A[a-f0-9]{64}\z/i', $signature)) {
+        return new \WP_REST_Response(['ok' => false, 'message' => 'Invalid request.'], 400);
+    }
+
+    if (abs(time() - (int) $timestamp) > 300) {
+        return new \WP_REST_Response(['ok' => false, 'message' => 'Request expired.'], 401);
+    }
+
+    $expected = hash_hmac('sha256', $timestamp . '.' . $nonce . '.' . $body, $settings['token']);
+    if (! hash_equals($expected, $signature)) {
+        serverdashboard_reporter_audit('trigger_rejected', 'Received a trigger-report request with an invalid signature.');
+        return new \WP_REST_Response(['ok' => false, 'message' => 'Invalid signature.'], 401);
+    }
+
+    $nonceKey = SERVER_DASHBOARD_REPORTER_TRIGGER_NONCE_PREFIX . md5($nonce);
+    if (get_transient($nonceKey)) {
+        return new \WP_REST_Response(['ok' => false, 'message' => 'Duplicate request.'], 401);
+    }
+    set_transient($nonceKey, 1, DAY_IN_SECONDS);
+
+    serverdashboard_reporter_audit('trigger_received', 'Dashboard requested an immediate report.');
+
+    $result = serverdashboard_reporter_send();
+
+    return new \WP_REST_Response($result, $result['ok'] ? 200 : 502);
+}
+
 function serverdashboard_reporter_cron_schedules(array $schedules): array
 {
     $schedules[SERVER_DASHBOARD_REPORTER_SCHEDULE] = [
@@ -479,6 +538,7 @@ function serverdashboard_reporter_deactivate(): void
 }
 
 add_filter('cron_schedules', 'serverdashboard_reporter_cron_schedules');
+add_action('rest_api_init', 'serverdashboard_reporter_register_rest_routes');
 add_action('init', 'serverdashboard_reporter_maybe_upgrade');
 add_action('admin_init', 'serverdashboard_reporter_register_settings');
 add_action('admin_menu', fn () => add_options_page('ServerDashboard Reporter', 'ServerDashboard Reporter', 'manage_options', 'serverdashboard-reporter', 'serverdashboard_reporter_render_settings'));

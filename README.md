@@ -110,6 +110,6 @@ curl -X POST http://127.0.0.1:8000/ingest/traffic \
 
 ## AWS EC2 Patches
 
-For live data, set `AWS_SYNC_USE_MOCK=false`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_DEFAULT_REGION` in `.env`. The AWS identity needs `ec2:DescribeInstances` and `ssm:DescribeInstancePatchStates` permissions. Sign in as an admin and select **Sync EC2 updates**.
+For live data, set `AWS_SYNC_USE_MOCK=false`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_DEFAULT_REGION` in `.env`. The AWS identity needs `ec2:DescribeInstances`, `ssm:DescribeInstancePatchStates`, `ssm:DescribeInstanceInformation`, and `ssm:SendCommand` permissions (the last one is required because, in addition to reading patch compliance, **Sync EC2 updates** now also triggers `AWS-RunPatchBaseline` with `Operation=Install` on every discovered instance — this installs pending OS patches immediately and can cause a reboot). Clicking the button also asks every active WordPress site's reporter plugin to send an immediate report instead of waiting for its next 6-hourly cron run. Sign in as an admin and select **Sync EC2 updates**.
 
-`AWS_SYNC_USE_MOCK=true` enables the safe development fallback shown by the seeded dashboard.# serverDashboard
+`AWS_SYNC_USE_MOCK=true` enables the safe development fallback shown by the seeded dashboard (no real AWS calls are made, and no patch install is triggered).

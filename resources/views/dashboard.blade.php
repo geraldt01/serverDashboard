@@ -8,7 +8,7 @@
         <div><h1>Monitoring Dashboard</h1><p class="muted">{{ auth()->user()->email }} · {{ auth()->user()->role }}</p></div>
         <div class="actions">
             @if(auth()->user()->isAdmin())
-                <form method="POST" action="{{ route('monitor.ec2.sync') }}">@csrf<button type="submit">Sync EC2 updates</button></form>
+                <form method="POST" action="{{ route('monitor.ec2.sync') }}" onsubmit="return confirm('This will install pending OS patches on every registered EC2 instance now and may cause reboots. Continue?');">@csrf<button type="submit">Sync EC2 updates</button></form>
             @endif
             <form method="POST" action="{{ route('logout') }}">@csrf<button type="submit" class="secondary">Sign out</button></form>
         </div>

@@ -5,8 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\Ec2PatchStatus;
 use App\Models\TrafficEvent;
 use App\Models\WordpressPluginUpdate;
+use App\Models\WordpressSite;
+use App\Services\WebpageHealthChecker;
 use Aws\Ec2\Ec2Client;
 use Aws\Ssm\SsmClient;
+use GuzzleHttp\Client;
 use Illuminate\Http\Request;
 
 class MonitoringIngestController extends Controller
@@ -63,7 +66,116 @@ class MonitoringIngestController extends Controller
             Ec2PatchStatus::create($record);
         }
 
-        return back()->with('status', sprintf('EC2 sync complete: %d instance records saved.', count($records)));
+        $patchMessage = $this->triggerEc2PatchInstall(array_column($records, 'instance_id'));
+        $wordpressMessage = $this->triggerWordpressReports();
+
+        return back()->with('status', trim(sprintf(
+            'EC2 sync complete: %d instance records saved. %s %s',
+            count($records),
+            $patchMessage,
+            $wordpressMessage
+        )));
+    }
+
+    /**
+     * Actually install pending OS patches (not just read compliance status) on every EC2
+     * instance discovered by fetchEc2PatchStatuses(), via AWS Systems Manager Run Command.
+     * Uses the AWS-provided AWS-RunPatchBaseline document (Operation=Install) so it works
+     * across Linux and Windows without the dashboard needing to know each instance's OS.
+     * This can trigger reboots on instances whose patch baseline requires one.
+     */
+    private function triggerEc2PatchInstall(array $instanceIds): string
+    {
+        if (config('services.monitoring.mock_mode')) {
+            return '(Mock mode) No real patch install was triggered.';
+        }
+
+        $instanceIds = array_values(array_unique(array_filter($instanceIds)));
+
+        if (empty($instanceIds)) {
+            return 'No EC2 instances available to patch.';
+        }
+
+        try {
+            $ssm = new SsmClient(['version' => 'latest', 'region' => config('services.aws.region')]);
+            $triggered = 0;
+
+            foreach (array_chunk($instanceIds, 50) as $chunk) {
+                $ssm->sendCommand([
+                    'InstanceIds' => $chunk,
+                    'DocumentName' => 'AWS-RunPatchBaseline',
+                    'Comment' => 'ServerDashboard: Sync EC2 updates (install pending patches)',
+                    'Parameters' => ['Operation' => ['Install']],
+                    'TimeoutSeconds' => 600,
+                ]);
+                $triggered += count($chunk);
+            }
+
+            return sprintf('Patch install triggered on %d instance(s) via AWS SSM (may take several minutes; some instances may reboot).', $triggered);
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return 'Failed to trigger patch install on EC2 instances: ' . $exception->getMessage();
+        }
+    }
+
+    /**
+     * Asks every active WordPress site to send an immediate report instead of waiting for
+     * its own 6-hourly cron, by calling the reporter plugin's trigger-report REST route.
+     * Signed the same way WordPress signs its own outbound reports (HMAC over
+     * timestamp.nonce.body with the shared site token), just in the reverse direction.
+     */
+    private function triggerWordpressReports(): string
+    {
+        $sites = WordpressSite::query()->where('is_active', true)->get();
+
+        if ($sites->isEmpty()) {
+            return 'No active WordPress sites to notify.';
+        }
+
+        $checker = app(WebpageHealthChecker::class);
+        $client = new Client(['timeout' => 10, 'connect_timeout' => 5]);
+        $notified = 0;
+        $failed = 0;
+
+        foreach ($sites as $site) {
+            $endpoint = rtrim((string) $site->url, '/') . '/wp-json/serverdashboard/v1/trigger-report';
+            $token = $site->monitoringToken();
+
+            if ($token === '' || ! $checker->isUrlSafeToFetch($endpoint)) {
+                $failed++;
+                continue;
+            }
+
+            $body = '{}';
+            $timestamp = (string) time();
+            $nonce = bin2hex(random_bytes(16));
+            $signature = hash_hmac('sha256', $timestamp . '.' . $nonce . '.' . $body, $token);
+
+            try {
+                $response = $client->post($endpoint, [
+                    'body' => $body,
+                    'headers' => [
+                        'Content-Type' => 'application/json',
+                        'X-ServerDashboard-Timestamp' => $timestamp,
+                        'X-ServerDashboard-Nonce' => $nonce,
+                        'X-ServerDashboard-Signature' => $signature,
+                    ],
+                    'http_errors' => false,
+                ]);
+
+                if ($response->getStatusCode() >= 200 && $response->getStatusCode() < 300) {
+                    $notified++;
+                } else {
+                    $failed++;
+                }
+            } catch (\Throwable $exception) {
+                report($exception);
+                $failed++;
+            }
+        }
+
+        return sprintf('WordPress report requested from %d site(s)%s.', $notified, $failed > 0 ? sprintf(' (%d failed)', $failed) : '');
     }
 
     private function fetchEc2PatchStatuses(): array

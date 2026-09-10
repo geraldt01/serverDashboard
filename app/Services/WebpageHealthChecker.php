@@ -334,8 +334,9 @@ class WebpageHealthChecker
     /**
      * Reject anything that isn't a plain public http/https host, blocking SSRF against
      * internal infrastructure, loopback addresses, and the cloud metadata service.
+     * Public so other callers (e.g. outbound calls to registered WordPress sites) can reuse it.
      */
-    private function isUrlSafeToFetch(string $url): bool
+    public function isUrlSafeToFetch(string $url): bool
     {
         $parts = parse_url($url);
 
