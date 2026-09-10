@@ -39,6 +39,7 @@
         button:hover { filter:brightness(1.06); }
         button.secondary { background:#fff; color:var(--ink); border:2px solid #d91a53; box-shadow:none; }
         button.secondary:hover { background:#f4f1fb; filter:none; }
+        button.btn-danger { background:#d91a53; color:#ffffff; border:1px solid #d91a53; box-shadow:none; }
         .meters { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px; margin:16px 0; }
         .meter { padding:16px; }
         .value { font-size:30px; font-weight:800; }

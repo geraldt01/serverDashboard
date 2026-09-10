@@ -50,7 +50,7 @@
                                 <form method="POST" action="{{ route('other-servers.test-connection', $server) }}">@csrf<button type="submit" class="secondary" @if(! $server->hostname) disabled title="Set a hostname to test connectivity" @endif>Test connection</button></form>
                                 <form method="POST" action="{{ route('other-servers.patch-now', $server) }}">@csrf<button type="submit" @if(! $server->aws_instance_id) disabled title="Set an AWS instance ID to enable manual patch checks" @endif>Patch now</button></form>
                                 <form method="POST" action="{{ route('other-servers.rotate-token', $server) }}">@csrf<button type="submit">Rotate token</button></form>
-                                <form method="POST" action="{{ route('other-servers.toggle-active', $server) }}">@csrf<button type="submit" class="secondary">{{ $server->is_active ? 'Disable' : 'Enable' }}</button></form>
+                                <form method="POST" action="{{ route('other-servers.toggle-active', $server) }}">@csrf<button type="submit" class="{{ $server->is_active ? 'btn-danger' : 'secondary' }}">{{ $server->is_active ? 'Disable' : 'Enable' }}</button></form>
                             </div>
                             <details style="margin-top:8px;">
                                 <summary class="muted" style="cursor:pointer;">Edit name / hostname / instance ID</summary>

@@ -40,8 +40,8 @@
                         <td>
                             <div class="actions">
                                 <form method="POST" action="{{ route('webpage-checks.run', $check) }}">@csrf<button type="submit">Run check now</button></form>
-                                <form method="POST" action="{{ route('webpage-checks.toggle-active', $check) }}">@csrf<button type="submit" class="secondary">{{ $check->is_active ? 'Disable' : 'Enable' }}</button></form>
-                                <form method="POST" action="{{ route('webpage-checks.destroy', $check) }}" onsubmit="return confirm('Remove {{ $check->name }} from frontend checks?');">@csrf @method('DELETE')<button type="submit" class="secondary">Remove</button></form>
+                                <form method="POST" action="{{ route('webpage-checks.toggle-active', $check) }}">@csrf<button type="submit" class="{{ $check->is_active ? 'btn-danger' : 'secondary' }}">{{ $check->is_active ? 'Disable' : 'Enable' }}</button></form>
+                                <form method="POST" action="{{ route('webpage-checks.destroy', $check) }}" onsubmit="return confirm('Remove {{ $check->name }} from frontend checks?');">@csrf @method('DELETE')<button type="submit" class="btn-danger">Remove</button></form>
                             </div>
                             @if($check->issues)
                                 <details style="margin-top:8px;">
