@@ -1,5 +1,4 @@
 <aside class="panel admin-sidebar" aria-label="Administration">
-    <div class="brand"><span class="dots"><span></span><span></span><span></span><span></span></span><div><b>nexgen</b><small>Dashboard</small></div></div>
     <h2>Administration</h2>
     <nav>
         <a class="{{ request()->routeIs('dashboard') ? 'is-active' : '' }}" href="{{ route('dashboard') }}"><span class="ic">&#9635;</span> Dashboard</a>

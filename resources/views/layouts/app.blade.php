@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ config('app.name') }}</title>
+    <link rel="icon" href="{{ asset('images/nexgen-logo.png') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -19,16 +20,11 @@
         body { margin:0; min-height:100vh; color:var(--ink); font-family:Inter,"Segoe UI",Tahoma,sans-serif; background:var(--bg); }
         a { color:var(--purple); }
 
-        .site-header { position:sticky; top:0; z-index:50; background:#fff; border-bottom:1px solid var(--line); padding:12px 24px; }
+        .site-header { position:sticky; top:0; z-index:50; background:#fff; border-bottom:1px solid var(--line); padding:10px 24px; }
         .site-header-inner { max-width:var(--shell-max); margin:auto; display:flex; align-items:center; }
-        .brand { display:flex; align-items:center; gap:10px; }
-        .brand .dots { display:flex; gap:3px; }
-        .brand .dots span { width:5px; height:5px; border-radius:50%; background:var(--red); }
-        .brand .dots span:nth-child(2) { background:var(--magenta); }
-        .brand .dots span:nth-child(3) { background:var(--purple); }
-        .brand .dots span:nth-child(4) { background:var(--ink); opacity:.35; }
-        .brand b { font-size:16px; }
-        .brand small { display:block; color:var(--muted); font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; }
+        .brand { display:flex; align-items:center; gap:12px; }
+        .brand-logo { height:32px; width:auto; display:block; }
+        .brand-tag { color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.12em; padding-left:12px; margin-left:2px; border-left:1px solid var(--line); }
 
         .shell { max-width:var(--shell-max); margin:auto; padding:24px; }
         .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:0 10px 26px rgba(36,29,51,.06); }
@@ -87,7 +83,7 @@
 <body>
     <header class="site-header">
         <div class="site-header-inner">
-            <div class="brand"><span class="dots"><span></span><span></span><span></span><span></span></span><div><b>nexgen</b><small>Dashboard</small></div></div>
+            <div class="brand"><img src="{{ asset('images/nexgen-logo.png') }}" alt="Nexgen Australia" class="brand-logo"><span class="brand-tag">Dashboard</span></div>
         </div>
     </header>
     <main class="shell">@yield('content')</main>
