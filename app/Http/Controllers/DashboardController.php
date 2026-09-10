@@ -27,7 +27,7 @@ class DashboardController extends Controller
 
         $latestPluginIds = WordpressPluginUpdate::query()
             ->selectRaw('MAX(id)')
-            ->groupBy('site_name', 'plugin_name');
+            ->groupBy('wordpress_site_id', 'plugin_name');
 
         $latestEc2Ids = Ec2PatchStatus::query()
             ->selectRaw('MAX(id)')
@@ -35,7 +35,7 @@ class DashboardController extends Controller
 
         $latestCoreIds = WordpressCoreUpdate::query()
             ->selectRaw('MAX(id)')
-            ->groupBy('site_name');
+            ->groupBy('wordpress_site_id');
 
         $plugins = WordpressPluginUpdate::query()
             ->whereIn('id', $latestPluginIds)
@@ -51,24 +51,32 @@ class DashboardController extends Controller
 
         $isAdmin = $request->user()->isAdmin();
 
-        $ec2Rows = $instances->map(fn (Ec2PatchStatus $instance) => (object) [
-            'source' => 'AWS SSM',
-            'name' => $instance->instance_name,
-            'identifier' => $instance->instance_id,
-            'os_version' => $instance->os_version,
-            'missing_count' => $instance->missing_count,
-            'security_count' => $instance->security_count,
-            'installed_count' => $instance->installed_count,
-            'failed_count' => $instance->failed_count,
-            'reboot_required' => $instance->reboot_required,
-            'checked_at' => $instance->checked_at,
-        ]);
-
-        $otherServerRows = OtherServer::query()
+        $otherServers = OtherServer::query()
             ->where('is_active', true)
             ->orderByDesc('security_updates')
             ->orderBy('name')
-            ->get()
+            ->get();
+
+        // A server can be tracked both via AWS SSM sync and its own push agent; only
+        // count it once, preferring the agent's more direct/up-to-date figures.
+        $agentTrackedInstanceIds = $otherServers->pluck('aws_instance_id')->filter()->values();
+
+        $ec2Rows = $instances
+            ->reject(fn (Ec2PatchStatus $instance) => $agentTrackedInstanceIds->contains($instance->instance_id))
+            ->map(fn (Ec2PatchStatus $instance) => (object) [
+                'source' => 'AWS SSM',
+                'name' => $instance->instance_name,
+                'identifier' => $instance->instance_id,
+                'os_version' => $instance->os_version,
+                'missing_count' => $instance->missing_count,
+                'security_count' => $instance->security_count,
+                'installed_count' => $instance->installed_count,
+                'failed_count' => $instance->failed_count,
+                'reboot_required' => $instance->reboot_required,
+                'checked_at' => $instance->checked_at,
+            ]);
+
+        $otherServerRows = $otherServers
             ->map(fn (OtherServer $server) => (object) [
                 'source' => 'Agent',
                 'name' => $server->name,
