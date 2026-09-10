@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: ServerDashboard Plugin Reporter
- * Description: Securely reports installed WordPress plugin/core update status and wp-admin logins to ServerDashboard.
- * Version: 1.5.0
+ * Description: Securely reports installed WordPress plugin/core/PHP update status and wp-admin logins to ServerDashboard.
+ * Version: 1.6.0
  * Requires at least: 5.8
  * Requires PHP: 7.4
  * License: GPL-2.0-or-later
@@ -16,7 +16,7 @@ const SERVER_DASHBOARD_REPORTER_OPTION = 'serverdashboard_reporter_settings';
 const SERVER_DASHBOARD_REPORTER_AUDIT_OPTION = 'serverdashboard_reporter_audit_log';
 const SERVER_DASHBOARD_REPORTER_CRON = 'serverdashboard_reporter_daily_report';
 const SERVER_DASHBOARD_REPORTER_SCHEDULE = 'serverdashboard_six_hourly';
-const SERVER_DASHBOARD_REPORTER_VERSION = '1.5.0';
+const SERVER_DASHBOARD_REPORTER_VERSION = '1.6.0';
 const SERVER_DASHBOARD_REPORTER_VERSION_OPTION = 'serverdashboard_reporter_version';
 const SERVER_DASHBOARD_REPORTER_MAX_AUDIT_EVENTS = 20;
 const SERVER_DASHBOARD_REPORTER_TRIGGER_NONCE_PREFIX = 'sdr_trigger_nonce_';
@@ -267,6 +267,33 @@ function serverdashboard_reporter_collect_core_update(): array
     ];
 }
 
+function serverdashboard_reporter_collect_php_info(): array
+{
+    $current = phpversion();
+    $status = 'unknown';
+    $recommended = null;
+
+    if (function_exists('wp_check_php_version')) {
+        $check = wp_check_php_version();
+        if (is_array($check)) {
+            if (isset($check['recommended_version']) && $check['recommended_version'] !== '') {
+                $recommended = (string) $check['recommended_version'];
+            }
+            if (array_key_exists('is_supported', $check)) {
+                $status = ! empty($check['is_supported']) ? 'supported' : 'outdated';
+            } elseif (array_key_exists('is_secure', $check)) {
+                $status = ! empty($check['is_secure']) ? 'supported' : 'outdated';
+            }
+        }
+    }
+
+    return [
+        'currentVersion' => is_string($current) ? $current : 'unknown',
+        'recommendedVersion' => $recommended,
+        'status' => $status,
+    ];
+}
+
 function serverdashboard_reporter_send(): array
 {
     $settings = serverdashboard_reporter_settings();
@@ -278,6 +305,7 @@ function serverdashboard_reporter_send(): array
     $body = wp_json_encode([
         'plugins' => serverdashboard_reporter_collect_plugins(),
         'core' => serverdashboard_reporter_collect_core_update(),
+        'php' => serverdashboard_reporter_collect_php_info(),
     ]);
     if (! is_string($body)) {
         serverdashboard_reporter_audit('report_failed', 'The plugin report could not be encoded.');

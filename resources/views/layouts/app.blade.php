@@ -37,7 +37,7 @@
         .actions { display:flex; gap:8px; flex-wrap:wrap; }
         button { appearance:none; border:0; border-radius:8px; padding:10px 15px; background:var(--gradient); color:#fff; font-weight:700; font-size:13.5px; cursor:pointer; box-shadow:0 8px 18px rgba(200,30,120,.22); }
         button:hover { filter:brightness(1.06); }
-        button.secondary { background:#fff; color:var(--ink); border:1px solid var(--line); box-shadow:none; }
+        button.secondary { background:#fff; color:var(--ink); border:2px solid #d91a53; box-shadow:none; }
         button.secondary:hover { background:#f4f1fb; filter:none; }
         .meters { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px; margin:16px 0; }
         .meter { padding:16px; }

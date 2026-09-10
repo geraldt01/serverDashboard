@@ -21,6 +21,9 @@ class WordpressSite extends Model
         'last_core_current_version',
         'last_core_latest_version',
         'last_core_status',
+        'last_php_version',
+        'last_php_recommended_version',
+        'last_php_status',
         'last_reported_at',
     ];
 

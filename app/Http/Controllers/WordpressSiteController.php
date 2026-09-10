@@ -93,6 +93,10 @@ class WordpressSiteController extends Controller
             'core.currentVersion' => ['required_with:core', 'string', 'max:20'],
             'core.latestVersion' => ['required_with:core', 'string', 'max:20'],
             'core.status' => ['required_with:core', 'in:up_to_date,outdated,unknown'],
+            'php' => ['nullable', 'array'],
+            'php.currentVersion' => ['required_with:php', 'string', 'max:20'],
+            'php.recommendedVersion' => ['nullable', 'string', 'max:20'],
+            'php.status' => ['required_with:php', 'in:supported,outdated,unknown'],
         ]);
 
         $checkedAt = now();
@@ -129,6 +133,9 @@ class WordpressSiteController extends Controller
             'last_core_current_version' => $validated['core']['currentVersion'] ?? $wordpressSite->last_core_current_version,
             'last_core_latest_version' => $validated['core']['latestVersion'] ?? $wordpressSite->last_core_latest_version,
             'last_core_status' => $validated['core']['status'] ?? $wordpressSite->last_core_status,
+            'last_php_version' => $validated['php']['currentVersion'] ?? $wordpressSite->last_php_version,
+            'last_php_recommended_version' => $validated['php']['recommendedVersion'] ?? $wordpressSite->last_php_recommended_version,
+            'last_php_status' => $validated['php']['status'] ?? $wordpressSite->last_php_status,
             'last_reported_at' => $checkedAt,
         ]);
 
