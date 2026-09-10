@@ -53,6 +53,10 @@ Route::post('/ingest/wordpress/site/{wordpressSite:slug}', [WordpressSiteControl
     ->middleware(['wordpress.site.token', 'throttle:120,1'])
     ->name('wordpress-sites.report');
 
+Route::get('/downloads/serverdashboard-reporter/update-info.json', [WordpressSiteController::class, 'reporterUpdateInfo'])
+    ->middleware('throttle:60,1')
+    ->name('wordpress-sites.reporter-update-info');
+
 Route::post('/ingest/wordpress/site/{wordpressSite:slug}/login', [WordpressSiteController::class, 'reportLogin'])
     ->middleware(['wordpress.site.token', 'throttle:120,1'])
     ->name('wordpress-sites.report-login');

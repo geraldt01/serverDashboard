@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ServerDashboard Plugin Reporter
  * Description: Securely reports installed WordPress plugin/core update status and wp-admin logins to ServerDashboard.
- * Version: 1.4.0
+ * Version: 1.5.0
  * Requires at least: 5.8
  * Requires PHP: 7.4
  * License: GPL-2.0-or-later
@@ -16,10 +16,11 @@ const SERVER_DASHBOARD_REPORTER_OPTION = 'serverdashboard_reporter_settings';
 const SERVER_DASHBOARD_REPORTER_AUDIT_OPTION = 'serverdashboard_reporter_audit_log';
 const SERVER_DASHBOARD_REPORTER_CRON = 'serverdashboard_reporter_daily_report';
 const SERVER_DASHBOARD_REPORTER_SCHEDULE = 'serverdashboard_six_hourly';
-const SERVER_DASHBOARD_REPORTER_VERSION = '1.4.0';
+const SERVER_DASHBOARD_REPORTER_VERSION = '1.5.0';
 const SERVER_DASHBOARD_REPORTER_VERSION_OPTION = 'serverdashboard_reporter_version';
 const SERVER_DASHBOARD_REPORTER_MAX_AUDIT_EVENTS = 20;
 const SERVER_DASHBOARD_REPORTER_TRIGGER_NONCE_PREFIX = 'sdr_trigger_nonce_';
+const SERVER_DASHBOARD_REPORTER_UPDATE_MANIFEST_TRANSIENT = 'serverdashboard_reporter_update_manifest';
 
 function serverdashboard_reporter_audit(string $event, string $message): void
 {
@@ -136,6 +137,8 @@ function serverdashboard_reporter_settings(): array
 
 function serverdashboard_reporter_sanitize_settings($settings): array
 {
+    delete_transient(SERVER_DASHBOARD_REPORTER_UPDATE_MANIFEST_TRANSIENT);
+
     $current = serverdashboard_reporter_stored_settings();
     $allowDevelopmentHttp = ! empty($settings['allow_development_http']);
     $endpoint = serverdashboard_reporter_validate_endpoint((string) ($settings['endpoint'] ?? ''), $allowDevelopmentHttp);
@@ -179,6 +182,7 @@ function serverdashboard_reporter_render_settings(): void
         <h1>ServerDashboard Reporter</h1>
         <?php settings_errors(SERVER_DASHBOARD_REPORTER_OPTION); ?>
         <p>This plugin requires an HTTPS dashboard endpoint by default. Development HTTP is an explicit temporary exception. The site token is encrypted before storage and is never sent over the network.</p>
+        <p>Once an endpoint is configured, future plugin releases show up as a normal update on the Plugins page &mdash; use <strong>Update now</strong> there instead of re-uploading the ZIP.</p>
         <form method="post" action="options.php">
             <?php settings_fields('serverdashboard_reporter'); ?>
             <table class="form-table" role="presentation">
@@ -484,6 +488,129 @@ function serverdashboard_reporter_handle_trigger_report(\WP_REST_Request $reques
     return new \WP_REST_Response($result, $result['ok'] ? 200 : 502);
 }
 
+/**
+ * The plugin ZIP/update manifest live on the same host as the configured reporter
+ * endpoint, so self-hosted dashboards on any domain work without hardcoding one here.
+ */
+function serverdashboard_reporter_dashboard_base_url(): string
+{
+    $settings = serverdashboard_reporter_settings();
+    $parts = wp_parse_url($settings['endpoint']);
+
+    if (empty($parts['scheme']) || empty($parts['host'])) {
+        return '';
+    }
+
+    $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+
+    return $parts['scheme'] . '://' . $parts['host'] . $port;
+}
+
+/**
+ * Fetches the dashboard's plugin update manifest (version/download URL), cached briefly
+ * so WordPress's own update checks don't hit the dashboard on every admin page load.
+ */
+function serverdashboard_reporter_fetch_update_manifest(): ?array
+{
+    $cached = get_transient(SERVER_DASHBOARD_REPORTER_UPDATE_MANIFEST_TRANSIENT);
+    if (is_array($cached)) {
+        return $cached;
+    }
+
+    $baseUrl = serverdashboard_reporter_dashboard_base_url();
+    if ($baseUrl === '') {
+        return null;
+    }
+
+    $settings = serverdashboard_reporter_settings();
+    $manifestUrl = $baseUrl . '/downloads/serverdashboard-reporter/update-info.json';
+    $isDevelopmentHttpEndpoint = serverdashboard_reporter_is_development_http_endpoint($manifestUrl, $settings['allow_development_http']);
+    $requestArgs = [
+        'timeout' => 10,
+        'redirection' => 0,
+        'sslverify' => true,
+        'reject_unsafe_urls' => ! $isDevelopmentHttpEndpoint,
+        'limit_response_size' => 8192,
+        'headers' => ['Accept' => 'application/json'],
+    ];
+    $response = $isDevelopmentHttpEndpoint
+        ? wp_remote_get($manifestUrl, $requestArgs)
+        : wp_safe_remote_get($manifestUrl, $requestArgs);
+
+    if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+        return null;
+    }
+
+    $data = json_decode(wp_remote_retrieve_body($response), true);
+    if (! is_array($data) || empty($data['version']) || empty($data['download_url'])) {
+        return null;
+    }
+
+    set_transient(SERVER_DASHBOARD_REPORTER_UPDATE_MANIFEST_TRANSIENT, $data, 6 * HOUR_IN_SECONDS);
+
+    return $data;
+}
+
+/**
+ * Injects a self-hosted update entry into WordPress's own update-checking transient, so
+ * the Plugins page shows "Update now" the same way it would for a wordpress.org plugin.
+ */
+function serverdashboard_reporter_check_for_update($transient)
+{
+    if (! is_object($transient)) {
+        $transient = new stdClass();
+    }
+
+    $pluginFile = plugin_basename(__FILE__);
+    $manifest = serverdashboard_reporter_fetch_update_manifest();
+
+    if ($manifest === null || version_compare((string) $manifest['version'], SERVER_DASHBOARD_REPORTER_VERSION, '<=')) {
+        unset($transient->response[$pluginFile]);
+
+        return $transient;
+    }
+
+    $transient->response[$pluginFile] = (object) [
+        'id' => $pluginFile,
+        'slug' => dirname($pluginFile),
+        'plugin' => $pluginFile,
+        'new_version' => $manifest['version'],
+        'url' => (string) ($manifest['url'] ?? ''),
+        'package' => $manifest['download_url'],
+        'requires' => (string) ($manifest['requires'] ?? ''),
+        'requires_php' => (string) ($manifest['requires_php'] ?? ''),
+    ];
+
+    return $transient;
+}
+
+/**
+ * Feeds the "View version details" popup WordPress shows next to the update notice.
+ */
+function serverdashboard_reporter_plugins_api($result, $action, $args)
+{
+    $slug = dirname(plugin_basename(__FILE__));
+
+    if ($action !== 'plugin_information' || empty($args->slug) || $args->slug !== $slug) {
+        return $result;
+    }
+
+    $manifest = serverdashboard_reporter_fetch_update_manifest();
+    if ($manifest === null) {
+        return $result;
+    }
+
+    return (object) [
+        'name' => 'ServerDashboard Plugin Reporter',
+        'slug' => $slug,
+        'version' => $manifest['version'],
+        'download_link' => $manifest['download_url'],
+        'requires' => (string) ($manifest['requires'] ?? ''),
+        'requires_php' => (string) ($manifest['requires_php'] ?? ''),
+        'sections' => ['description' => 'Securely reports installed WordPress plugin/core update status and wp-admin logins to ServerDashboard.'],
+    ];
+}
+
 function serverdashboard_reporter_cron_schedules(array $schedules): array
 {
     $schedules[SERVER_DASHBOARD_REPORTER_SCHEDULE] = [
@@ -538,6 +665,8 @@ function serverdashboard_reporter_deactivate(): void
 }
 
 add_filter('cron_schedules', 'serverdashboard_reporter_cron_schedules');
+add_filter('pre_set_site_transient_update_plugins', 'serverdashboard_reporter_check_for_update');
+add_filter('plugins_api', 'serverdashboard_reporter_plugins_api', 10, 3);
 add_action('rest_api_init', 'serverdashboard_reporter_register_rest_routes');
 add_action('init', 'serverdashboard_reporter_maybe_upgrade');
 add_action('admin_init', 'serverdashboard_reporter_register_settings');

@@ -193,4 +193,47 @@ class WordpressSiteController extends Controller
             'token' => $token,
         ];
     }
+
+    /**
+     * Public plugin-update manifest consumed by the reporter plugin's self-updater. Reads
+     * the version straight out of the deployed ZIP (not the source file) so the advertised
+     * version can never drift ahead of what "Update now" would actually install.
+     */
+    public function reporterUpdateInfo()
+    {
+        $zipPath = public_path('downloads/serverdashboard-reporter.zip');
+        $header = '';
+
+        if (is_file($zipPath)) {
+            $zip = new \ZipArchive();
+            if ($zip->open($zipPath) === true) {
+                $contents = $zip->getFromName('serverdashboard-reporter/serverdashboard-reporter.php');
+                if ($contents !== false) {
+                    $header = substr($contents, 0, 4096);
+                }
+                $zip->close();
+            }
+        }
+
+        $version = $this->pluginHeaderValue($header, 'Version') ?? '0.0.0';
+
+        return response()->json([
+            'name' => 'ServerDashboard Plugin Reporter',
+            'version' => $version,
+            'download_url' => asset('downloads/serverdashboard-reporter.zip') . '?v=' . $version,
+            'url' => url('/wordpress-sites'),
+            'requires' => $this->pluginHeaderValue($header, 'Requires at least'),
+            'requires_php' => $this->pluginHeaderValue($header, 'Requires PHP'),
+            'last_updated' => is_file($zipPath) ? date('Y-m-d H:i:s', filemtime($zipPath)) : null,
+        ]);
+    }
+
+    private function pluginHeaderValue(string $header, string $label): ?string
+    {
+        if (preg_match('/^\s*\*\s*' . preg_quote($label, '/') . ':\s*(.+)$/mi', $header, $matches)) {
+            return trim($matches[1]);
+        }
+
+        return null;
+    }
 }
