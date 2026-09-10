@@ -38,7 +38,7 @@
         const rows = @json($trafficRows);
         const labels = [...new Set(rows.map(row => row.day))];
         const sites = [...new Set(rows.map(row => row.site_name))];
-        const colors = ['#0f766e', '#a15c00', '#2563b8', '#bb2857'];
+        const colors = ['#e2173d', '#7b2ff7', '#c81e78', '#241d33'];
         new Chart(document.getElementById('trafficChart'), { type: 'line', data: { labels, datasets: sites.map((site, index) => ({ label: site, data: labels.map(day => Number(rows.find(row => row.day === day && row.site_name === site)?.visits || 0)), borderColor: colors[index % colors.length], backgroundColor: colors[index % colors.length], tension: .25 })) }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } } });
 
         function paginateTable(table) {
