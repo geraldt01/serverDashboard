@@ -82,7 +82,7 @@ The reporter uses WordPress's native plugin and core update checks. It sends the
 
 ## Reporter Security
 
-The included reporter ZIP is version 1.2.0. It requires an HTTPS endpoint by default and will not submit reports to plain HTTP URLs in production. During development, an administrator can explicitly enable **Development HTTP endpoint** in the WordPress reporter settings, save, and use an `http://` endpoint temporarily. Disable that option before production because HTTP does not protect report metadata in transit.
+The included reporter ZIP is version 1.4.0. It requires an HTTPS endpoint by default and will not submit reports to plain HTTP URLs in production. During development, an administrator can explicitly enable **Development HTTP endpoint** in the WordPress reporter settings, save, and use an `http://` endpoint temporarily. Disable that option before production because HTTP does not protect report metadata in transit.
 
 Enabling this option only removes the reporter's HTTPS validation. It does not make `127.0.0.1` reachable from another machine: a public WordPress site still needs an address that routes to the dashboard development machine, such as a LAN hostname, a temporary HTTPS tunnel, or the final public deployment domain. It provides the following protections:
 
