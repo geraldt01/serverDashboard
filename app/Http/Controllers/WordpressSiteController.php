@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\TrafficEvent;
 use App\Models\User;
 use App\Models\WordpressCoreUpdate;
 use App\Models\WordpressLoginEvent;
@@ -97,6 +98,8 @@ class WordpressSiteController extends Controller
             'php.currentVersion' => ['required_with:php', 'string', 'max:20'],
             'php.recommendedVersion' => ['nullable', 'string', 'max:20'],
             'php.status' => ['required_with:php', 'in:supported,outdated,unknown'],
+            'traffic' => ['nullable', 'array'],
+            'traffic.visits' => ['required_with:traffic', 'integer', 'min:0', 'max:10000000'],
         ]);
 
         $checkedAt = now();
@@ -124,6 +127,14 @@ class WordpressSiteController extends Controller
                 'latest_version' => $validated['core']['latestVersion'],
                 'status' => $validated['core']['status'],
                 'checked_at' => $checkedAt,
+            ]);
+        }
+
+        if (isset($validated['traffic'])) {
+            TrafficEvent::create([
+                'site_name' => $wordpressSite->name,
+                'visits' => $validated['traffic']['visits'],
+                'recorded_at' => $checkedAt,
             ]);
         }
 

@@ -18,9 +18,12 @@ class DashboardController extends Controller
 {
     public function index(Request $request)
     {
+        $registeredSiteNames = $this->trafficSiteNamesForRegisteredWebpages();
+
         $trafficRows = TrafficEvent::query()
             ->selectRaw('DATE(recorded_at) as day, site_name, SUM(visits) as visits')
             ->where('recorded_at', '>=', now()->subDays(14))
+            ->whereIn('site_name', $registeredSiteNames)
             ->groupByRaw('DATE(recorded_at), site_name')
             ->orderBy('day')
             ->get();
@@ -111,7 +114,10 @@ class DashboardController extends Controller
             ->get();
 
         return view('dashboard', [
-            'trafficLast24h' => TrafficEvent::query()->where('recorded_at', '>=', now()->subDay())->sum('visits'),
+            'trafficLast24h' => TrafficEvent::query()
+                ->where('recorded_at', '>=', now()->subDay())
+                ->whereIn('site_name', $registeredSiteNames)
+                ->sum('visits'),
             'outdatedPlugins' => $plugins->where('status', 'outdated')->count(),
             'ec2MissingPatches' => $patchInstances->sum('missing_count'),
             'outdatedCoreSites' => $coreUpdates->where('status', 'outdated')->count(),
@@ -129,6 +135,44 @@ class DashboardController extends Controller
                 ? User::query()->orderByDesc('created_at')->get(['id', 'name', 'email', 'role', 'created_at'])
                 : collect(),
         ]);
+    }
+
+    /**
+     * Traffic trend should only reflect sites actually registered as Frontend Page Checks.
+     * WordpressSite reports carry traffic under the site's own `name`, so match the two
+     * registrations by hostname (the only field both admin-entered records share).
+     *
+     * @return array<int, string>
+     */
+    private function trafficSiteNamesForRegisteredWebpages(): array
+    {
+        $registeredHosts = WebpageCheck::query()
+            ->where('is_active', true)
+            ->pluck('url')
+            ->map(fn ($url) => $this->normalizeHost($url))
+            ->filter()
+            ->unique();
+
+        if ($registeredHosts->isEmpty()) {
+            return [];
+        }
+
+        return WordpressSite::query()
+            ->get(['name', 'url'])
+            ->filter(fn (WordpressSite $site) => $registeredHosts->contains($this->normalizeHost($site->url)))
+            ->pluck('name')
+            ->all();
+    }
+
+    private function normalizeHost(?string $url): ?string
+    {
+        if (! $url) {
+            return null;
+        }
+
+        $host = parse_url($url, PHP_URL_HOST) ?? $url;
+
+        return strtolower(preg_replace('/^www\./', '', $host));
     }
 
     public function login(Request $request)

@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: ServerDashboard Plugin Reporter
- * Description: Securely reports installed WordPress plugin/core/PHP update status and wp-admin logins to ServerDashboard.
- * Version: 1.6.0
+ * Description: Securely reports installed WordPress plugin/core/PHP update status, front-end traffic, and wp-admin logins to ServerDashboard.
+ * Version: 1.7.0
  * Requires at least: 5.8
  * Requires PHP: 7.4
  * License: GPL-2.0-or-later
@@ -16,11 +16,12 @@ const SERVER_DASHBOARD_REPORTER_OPTION = 'serverdashboard_reporter_settings';
 const SERVER_DASHBOARD_REPORTER_AUDIT_OPTION = 'serverdashboard_reporter_audit_log';
 const SERVER_DASHBOARD_REPORTER_CRON = 'serverdashboard_reporter_daily_report';
 const SERVER_DASHBOARD_REPORTER_SCHEDULE = 'serverdashboard_six_hourly';
-const SERVER_DASHBOARD_REPORTER_VERSION = '1.6.0';
+const SERVER_DASHBOARD_REPORTER_VERSION = '1.7.0';
 const SERVER_DASHBOARD_REPORTER_VERSION_OPTION = 'serverdashboard_reporter_version';
 const SERVER_DASHBOARD_REPORTER_MAX_AUDIT_EVENTS = 20;
 const SERVER_DASHBOARD_REPORTER_TRIGGER_NONCE_PREFIX = 'sdr_trigger_nonce_';
 const SERVER_DASHBOARD_REPORTER_UPDATE_MANIFEST_TRANSIENT = 'serverdashboard_reporter_update_manifest';
+const SERVER_DASHBOARD_REPORTER_TRAFFIC_OPTION = 'serverdashboard_reporter_traffic_count';
 
 function serverdashboard_reporter_audit(string $event, string $message): void
 {
@@ -294,6 +295,52 @@ function serverdashboard_reporter_collect_php_info(): array
     ];
 }
 
+/**
+ * Counts front-end page views since the option was last reset (see
+ * serverdashboard_reporter_consume_traffic()). Uses a direct atomic SQL increment
+ * instead of get_option()/update_option() to stay correct under concurrent requests.
+ */
+function serverdashboard_reporter_track_visit(): void
+{
+    if (is_admin() || wp_doing_ajax() || wp_doing_cron() || (defined('REST_REQUEST') && REST_REQUEST)) {
+        return;
+    }
+
+    global $wpdb;
+    $updated = $wpdb->query($wpdb->prepare(
+        "UPDATE {$wpdb->options} SET option_value = option_value + 1 WHERE option_name = %s",
+        SERVER_DASHBOARD_REPORTER_TRAFFIC_OPTION
+    ));
+
+    if (! $updated) {
+        add_option(SERVER_DASHBOARD_REPORTER_TRAFFIC_OPTION, 1, '', false);
+    }
+}
+add_action('template_redirect', 'serverdashboard_reporter_track_visit');
+
+function serverdashboard_reporter_peek_traffic(): int
+{
+    return (int) get_option(SERVER_DASHBOARD_REPORTER_TRAFFIC_OPTION, 0);
+}
+
+/**
+ * Subtracts exactly the amount already reported (rather than resetting to 0) so visits
+ * that arrive while the report request is in flight aren't lost.
+ */
+function serverdashboard_reporter_consume_traffic(int $amount): void
+{
+    if ($amount <= 0) {
+        return;
+    }
+
+    global $wpdb;
+    $wpdb->query($wpdb->prepare(
+        "UPDATE {$wpdb->options} SET option_value = GREATEST(0, CAST(option_value AS SIGNED) - %d) WHERE option_name = %s",
+        $amount,
+        SERVER_DASHBOARD_REPORTER_TRAFFIC_OPTION
+    ));
+}
+
 function serverdashboard_reporter_send(): array
 {
     $settings = serverdashboard_reporter_settings();
@@ -302,10 +349,12 @@ function serverdashboard_reporter_send(): array
         return ['ok' => false, 'message' => 'Configure the secure endpoint and site token first.'];
     }
 
+    $trafficVisits = serverdashboard_reporter_peek_traffic();
     $body = wp_json_encode([
         'plugins' => serverdashboard_reporter_collect_plugins(),
         'core' => serverdashboard_reporter_collect_core_update(),
         'php' => serverdashboard_reporter_collect_php_info(),
+        'traffic' => ['visits' => $trafficVisits],
     ]);
     if (! is_string($body)) {
         serverdashboard_reporter_audit('report_failed', 'The plugin report could not be encoded.');
@@ -352,6 +401,7 @@ function serverdashboard_reporter_send(): array
     }
 
     serverdashboard_reporter_audit('report_sent', sprintf('Signed report sent for %d plugins.', count(json_decode($body, true)['plugins'] ?? [])));
+    serverdashboard_reporter_consume_traffic($trafficVisits);
 
     return ['ok' => true, 'message' => 'Signed plugin update report sent.'];
 }
