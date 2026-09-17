@@ -1,6 +1,13 @@
 @extends('layouts.app')
 
 @section('content')
+    <style>
+        dialog.other-server-details-dialog { border:none; border-radius:8px; padding:0; width:min(560px,90vw); }
+        dialog.other-server-details-dialog::backdrop { background:rgba(15,23,42,.45); }
+        dialog.other-server-details-dialog .modal-body { padding:20px; }
+        dialog.other-server-details-dialog ul { margin:10px 0 0; padding-left:18px; max-height:60vh; overflow:auto; font-size:13px; }
+        dialog.other-server-details-dialog .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+    </style>
     @include('partials.admin-sidebar')
     <header class="panel topbar">
         <div><h1>Other Servers</h1><p class="muted">Track OS update status for Ubuntu/CentOS/RHEL EC2 servers outside WordPress.</p></div>
@@ -44,19 +51,43 @@
                         <td>
                             {{ $server->total_updates }}
                             @if($server->update_details)
-                                <details style="margin-top:4px;">
-                                    <summary class="muted" style="cursor:pointer;">Details</summary>
-                                    <ul style="margin:6px 0 0;padding-left:18px;max-height:200px;overflow:auto;font-size:12px;">
-                                        @foreach(explode("\n", trim($server->update_details)) as $line)
-                                            @if(trim($line) !== '')
-                                                <li>{{ $line }}</li>
-                                            @endif
-                                        @endforeach
-                                    </ul>
-                                </details>
+                                <br><button type="button" class="secondary" data-open-updates="updates-dialog-{{ $server->id }}">View details</button>
+                                <dialog id="updates-dialog-{{ $server->id }}" class="other-server-details-dialog">
+                                    <div class="modal-body">
+                                        <h2>Pending updates &ndash; {{ $server->name }}</h2>
+                                        <p class="muted">{{ $server->total_updates }} update(s), {{ $server->security_updates }} security. Last report: {{ $server->last_reported_at?->diffForHumans() ?? 'No report yet' }}.</p>
+                                        <ul>
+                                            @foreach(explode("\n", trim($server->update_details)) as $line)
+                                                @if(trim($line) !== '')
+                                                    <li>{{ $line }}</li>
+                                                @endif
+                                            @endforeach
+                                        </ul>
+                                        <div class="modal-actions"><button type="button" class="secondary" data-close-updates>Close</button></div>
+                                    </div>
+                                </dialog>
                             @endif
                         </td>
-                        <td><span class="badge {{ $server->security_updates > 0 ? 'danger' : 'ok' }}">{{ $server->security_updates }}</span></td>
+                        <td>
+                            <span class="badge {{ $server->security_updates > 0 ? 'danger' : 'ok' }}">{{ $server->security_updates }}</span>
+                            @if($server->security_update_details)
+                                <br><button type="button" class="secondary" data-open-security="security-dialog-{{ $server->id }}">View details</button>
+                                <dialog id="security-dialog-{{ $server->id }}" class="other-server-details-dialog">
+                                    <div class="modal-body">
+                                        <h2>Security updates &ndash; {{ $server->name }}</h2>
+                                        <p class="muted">{{ $server->security_updates }} security update(s). Last report: {{ $server->last_reported_at?->diffForHumans() ?? 'No report yet' }}.</p>
+                                        <ul>
+                                            @foreach(explode("\n", trim($server->security_update_details)) as $line)
+                                                @if(trim($line) !== '')
+                                                    <li>{{ $line }}</li>
+                                                @endif
+                                            @endforeach
+                                        </ul>
+                                        <div class="modal-actions"><button type="button" class="secondary" data-close-security>Close</button></div>
+                                    </div>
+                                </dialog>
+                            @endif
+                        </td>
                         <td><span class="badge {{ $server->reboot_required ? 'warning' : 'ok' }}">{{ $server->reboot_required ? 'required' : 'no' }}</span></td>
                         <td>{{ $server->php_version ?? '—' }}@if($server->php_update_available)<br><span class="badge warning">update available</span>@endif</td>
                         <td>
@@ -136,6 +167,7 @@ case "$PKG_MGR" in
             SECURITY=$(apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst.*security' || true)
         fi
         UPDATE_DETAILS=$(apt list --upgradable 2>/dev/null | tail -n +2 | head -n 50 || true)
+        SECURITY_UPDATE_DETAILS=$(apt-get -s dist-upgrade 2>/dev/null | grep '^Inst.*security' | head -n 50 || true)
         REBOOT=false
         [[ -f /var/run/reboot-required ]] && REBOOT=true
         ;;
@@ -144,6 +176,7 @@ case "$PKG_MGR" in
         TOTAL=$("$PKG_MGR" -q check-update 2>/dev/null | grep -c -E '^[A-Za-z0-9]' || true)
         SECURITY=$("$PKG_MGR" -q check-update --security 2>/dev/null | grep -c -E '^[A-Za-z0-9]' || true)
         UPDATE_DETAILS=$("$PKG_MGR" -q check-update 2>/dev/null | grep -E '^[A-Za-z0-9]' | head -n 50 || true)
+        SECURITY_UPDATE_DETAILS=$("$PKG_MGR" -q check-update --security 2>/dev/null | grep -E '^[A-Za-z0-9]' | head -n 50 || true)
         REBOOT=false
         if command -v needs-restarting >/dev/null 2>&1; then
             needs-restarting -r >/dev/null 2>&1 || REBOOT=true
@@ -153,6 +186,7 @@ case "$PKG_MGR" in
         TOTAL=0
         SECURITY=0
         UPDATE_DETAILS=""
+        SECURITY_UPDATE_DETAILS=""
         REBOOT=false
         ;;
 esac
@@ -183,11 +217,12 @@ fi
 
 CHECKED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# JSON-escape the (possibly multi-line) package list: backslashes first, then quotes, then real newlines -> literal \n.
+# JSON-escape the (possibly multi-line) package lists: backslashes first, then quotes, then real newlines -> literal \n.
 UPDATE_DETAILS_JSON=$(printf '%s' "$UPDATE_DETAILS" | sed -e ':a' -e 'N' -e '$!ba' -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\n/\\n/g')
+SECURITY_UPDATE_DETAILS_JSON=$(printf '%s' "$SECURITY_UPDATE_DETAILS" | sed -e ':a' -e 'N' -e '$!ba' -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\n/\\n/g')
 
-BODY=$(printf '{"osName":"%s","totalUpdates":%d,"securityUpdates":%d,"updateDetails":"%s","rebootRequired":%s,"phpVersion":"%s","phpUpdateAvailable":%s,"checkedAt":"%s"}' \
-    "$OS_NAME" "$TOTAL" "$SECURITY" "$UPDATE_DETAILS_JSON" "$REBOOT" "$PHP_VERSION" "$PHP_UPDATE_AVAILABLE" "$CHECKED_AT")
+BODY=$(printf '{"osName":"%s","totalUpdates":%d,"securityUpdates":%d,"updateDetails":"%s","securityUpdateDetails":"%s","rebootRequired":%s,"phpVersion":"%s","phpUpdateAvailable":%s,"checkedAt":"%s"}' \
+    "$OS_NAME" "$TOTAL" "$SECURITY" "$UPDATE_DETAILS_JSON" "$SECURITY_UPDATE_DETAILS_JSON" "$REBOOT" "$PHP_VERSION" "$PHP_UPDATE_AVAILABLE" "$CHECKED_AT")
 
 TIMESTAMP=$(date +%s)
 NONCE=$(RANDFILE=/dev/null openssl rand -hex 16)
@@ -290,17 +325,20 @@ if (-not $DashboardToken) { Write-Error "DASHBOARD_TOKEN not set"; exit 1 }
 $total = 0
 $security = 0
 $updateDetails = ""
+$securityUpdateDetails = ""
 try {
     $updateSession = New-Object -ComObject Microsoft.Update.Session
     $updateSearcher = $updateSession.CreateUpdateSearcher()
     $searchResult = $updateSearcher.Search("IsInstalled=0 and IsHidden=0")
     $total = $searchResult.Updates.Count
+    $securityUpdates = @()
     foreach ($update in $searchResult.Updates) {
         foreach ($category in $update.Categories) {
-            if ($category.Name -eq "Security Updates") { $security++; break }
+            if ($category.Name -eq "Security Updates") { $security++; $securityUpdates += $update; break }
         }
     }
     $updateDetails = (($searchResult.Updates | Select-Object -First 50 | ForEach-Object { $_.Title }) -join "`n")
+    $securityUpdateDetails = (($securityUpdates | Select-Object -First 50 | ForEach-Object { $_.Title }) -join "`n")
 } catch {
     # Leave counts at 0 if the Windows Update Agent API is unavailable/blocked
 }
@@ -329,6 +367,7 @@ $bodyObject = [ordered]@{
     totalUpdates = $total
     securityUpdates = $security
     updateDetails = $updateDetails
+    securityUpdateDetails = $securityUpdateDetails
     rebootRequired = $rebootRequired
     phpVersion = $phpVersion
     phpUpdateAvailable = $phpUpdateAvailable
@@ -386,4 +425,19 @@ Get-ScheduledTaskInfo -TaskName 'ServerDashboard Agent'</textarea>
             <li>Enable <code>ufw</code>/security-group rules to deny all inbound by default, and consider <code>fail2ban</code> for brute-force protection on any exposed service.</li>
         </ul>
     </section>
+
+    <script>
+        document.querySelectorAll('[data-open-updates]').forEach((btn) => {
+            btn.addEventListener('click', () => document.getElementById(btn.dataset.openUpdates)?.showModal());
+        });
+        document.querySelectorAll('[data-close-updates]').forEach((btn) => {
+            btn.addEventListener('click', () => btn.closest('dialog')?.close());
+        });
+        document.querySelectorAll('[data-open-security]').forEach((btn) => {
+            btn.addEventListener('click', () => document.getElementById(btn.dataset.openSecurity)?.showModal());
+        });
+        document.querySelectorAll('[data-close-security]').forEach((btn) => {
+            btn.addEventListener('click', () => btn.closest('dialog')?.close());
+        });
+    </script>
 @endsection
