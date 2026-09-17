@@ -7,6 +7,18 @@
         dialog.other-server-details-dialog .modal-body { padding:20px; }
         dialog.other-server-details-dialog ul { margin:10px 0 0; padding-left:18px; max-height:60vh; overflow:auto; font-size:13px; }
         dialog.other-server-details-dialog .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+        button.other-server-details-dialog {
+            background:#fff;
+            color:var(--ink);
+            border:none;
+            box-shadow:none;
+            display:block;
+            font-size:10px;
+            text-align:left;
+            padding:5px 0 0;
+            height:13px;
+            position:absolute;
+        }
     </style>
     @include('partials.admin-sidebar')
     <header class="panel topbar">
@@ -48,10 +60,10 @@
                         <td><span class="badge {{ $server->is_active ? 'ok' : 'danger' }}">{{ $server->is_active ? 'enabled' : 'disabled' }}</span></td>
                         <td>{{ $server->os_name ?? '—' }}</td>
                         <td>{{ $server->last_reported_at?->diffForHumans() ?? 'No report yet' }}</td>
-                        <td>
+                        <td style="position:relative;">
                             {{ $server->total_updates }}
                             @if($server->update_details)
-                                <br><button type="button" class="secondary" data-open-updates="updates-dialog-{{ $server->id }}">View details</button>
+                                <button type="button" class="other-server-details-dialog" data-open-updates="updates-dialog-{{ $server->id }}">View details</button>
                                 <dialog id="updates-dialog-{{ $server->id }}" class="other-server-details-dialog">
                                     <div class="modal-body">
                                         <h2>Pending updates &ndash; {{ $server->name }}</h2>
@@ -68,10 +80,10 @@
                                 </dialog>
                             @endif
                         </td>
-                        <td>
+                        <td style="position:relative;">
                             <span class="badge {{ $server->security_updates > 0 ? 'danger' : 'ok' }}">{{ $server->security_updates }}</span>
                             @if($server->security_update_details)
-                                <br><button type="button" class="secondary" data-open-security="security-dialog-{{ $server->id }}">View details</button>
+                                <button type="button" class="other-server-details-dialog" data-open-security="security-dialog-{{ $server->id }}">View details</button>
                                 <dialog id="security-dialog-{{ $server->id }}" class="other-server-details-dialog">
                                     <div class="modal-body">
                                         <h2>Security updates &ndash; {{ $server->name }}</h2>
