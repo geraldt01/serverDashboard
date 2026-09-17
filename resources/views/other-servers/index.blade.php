@@ -41,7 +41,21 @@
                         <td><span class="badge {{ $server->is_active ? 'ok' : 'danger' }}">{{ $server->is_active ? 'enabled' : 'disabled' }}</span></td>
                         <td>{{ $server->os_name ?? '—' }}</td>
                         <td>{{ $server->last_reported_at?->diffForHumans() ?? 'No report yet' }}</td>
-                        <td>{{ $server->total_updates }}</td>
+                        <td>
+                            {{ $server->total_updates }}
+                            @if($server->update_details)
+                                <details style="margin-top:4px;">
+                                    <summary class="muted" style="cursor:pointer;">Details</summary>
+                                    <ul style="margin:6px 0 0;padding-left:18px;max-height:200px;overflow:auto;font-size:12px;">
+                                        @foreach(explode("\n", trim($server->update_details)) as $line)
+                                            @if(trim($line) !== '')
+                                                <li>{{ $line }}</li>
+                                            @endif
+                                        @endforeach
+                                    </ul>
+                                </details>
+                            @endif
+                        </td>
                         <td><span class="badge {{ $server->security_updates > 0 ? 'danger' : 'ok' }}">{{ $server->security_updates }}</span></td>
                         <td><span class="badge {{ $server->reboot_required ? 'warning' : 'ok' }}">{{ $server->reboot_required ? 'required' : 'no' }}</span></td>
                         <td>{{ $server->php_version ?? '—' }}@if($server->php_update_available)<br><span class="badge warning">update available</span>@endif</td>
@@ -121,6 +135,7 @@ case "$PKG_MGR" in
             TOTAL=$(apt list --upgradable 2>/dev/null | grep -c '^[^L]' || true)
             SECURITY=$(apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst.*security' || true)
         fi
+        UPDATE_DETAILS=$(apt list --upgradable 2>/dev/null | tail -n +2 | head -n 50 || true)
         REBOOT=false
         [[ -f /var/run/reboot-required ]] && REBOOT=true
         ;;
@@ -128,6 +143,7 @@ case "$PKG_MGR" in
         # check-update exits 100 when updates are available; harmless here since grep (not check-update) is the last stage of the pipe.
         TOTAL=$("$PKG_MGR" -q check-update 2>/dev/null | grep -c -E '^[A-Za-z0-9]' || true)
         SECURITY=$("$PKG_MGR" -q check-update --security 2>/dev/null | grep -c -E '^[A-Za-z0-9]' || true)
+        UPDATE_DETAILS=$("$PKG_MGR" -q check-update 2>/dev/null | grep -E '^[A-Za-z0-9]' | head -n 50 || true)
         REBOOT=false
         if command -v needs-restarting >/dev/null 2>&1; then
             needs-restarting -r >/dev/null 2>&1 || REBOOT=true
@@ -136,6 +152,7 @@ case "$PKG_MGR" in
     *)
         TOTAL=0
         SECURITY=0
+        UPDATE_DETAILS=""
         REBOOT=false
         ;;
 esac
@@ -166,8 +183,11 @@ fi
 
 CHECKED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-BODY=$(printf '{"osName":"%s","totalUpdates":%d,"securityUpdates":%d,"rebootRequired":%s,"phpVersion":"%s","phpUpdateAvailable":%s,"checkedAt":"%s"}' \
-    "$OS_NAME" "$TOTAL" "$SECURITY" "$REBOOT" "$PHP_VERSION" "$PHP_UPDATE_AVAILABLE" "$CHECKED_AT")
+# JSON-escape the (possibly multi-line) package list: backslashes first, then quotes, then real newlines -> literal \n.
+UPDATE_DETAILS_JSON=$(printf '%s' "$UPDATE_DETAILS" | sed -e ':a' -e 'N' -e '$!ba' -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\n/\\n/g')
+
+BODY=$(printf '{"osName":"%s","totalUpdates":%d,"securityUpdates":%d,"updateDetails":"%s","rebootRequired":%s,"phpVersion":"%s","phpUpdateAvailable":%s,"checkedAt":"%s"}' \
+    "$OS_NAME" "$TOTAL" "$SECURITY" "$UPDATE_DETAILS_JSON" "$REBOOT" "$PHP_VERSION" "$PHP_UPDATE_AVAILABLE" "$CHECKED_AT")
 
 TIMESTAMP=$(date +%s)
 NONCE=$(RANDFILE=/dev/null openssl rand -hex 16)
@@ -269,6 +289,7 @@ if (-not $DashboardToken) { Write-Error "DASHBOARD_TOKEN not set"; exit 1 }
 
 $total = 0
 $security = 0
+$updateDetails = ""
 try {
     $updateSession = New-Object -ComObject Microsoft.Update.Session
     $updateSearcher = $updateSession.CreateUpdateSearcher()
@@ -279,6 +300,7 @@ try {
             if ($category.Name -eq "Security Updates") { $security++; break }
         }
     }
+    $updateDetails = (($searchResult.Updates | Select-Object -First 50 | ForEach-Object { $_.Title }) -join "`n")
 } catch {
     # Leave counts at 0 if the Windows Update Agent API is unavailable/blocked
 }
@@ -306,6 +328,7 @@ $bodyObject = [ordered]@{
     osName = $osName
     totalUpdates = $total
     securityUpdates = $security
+    updateDetails = $updateDetails
     rebootRequired = $rebootRequired
     phpVersion = $phpVersion
     phpUpdateAvailable = $phpUpdateAvailable

@@ -19,6 +19,7 @@ class OtherServer extends Model
         'os_name',
         'total_updates',
         'security_updates',
+        'update_details',
         'reboot_required',
         'php_version',
         'php_update_available',
