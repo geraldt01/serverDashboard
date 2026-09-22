@@ -135,17 +135,18 @@
         <h2>Connecting a Server &ndash; Push Agent (Recommended)</h2>
         <p class="muted">The dashboard never opens an inbound connection to your servers. Instead, each server runs a small agent on a schedule that pushes its update status out over HTTPS using the one-time token above. This means no SSH access, no stored SSH keys, and no extra inbound firewall rules are needed for reporting.</p>
 
-        <h3>1. Store the credentials securely (as root)</h3>
+        <h3>1. Create a dedicated service account and store the credentials securely (as root)</h3>
         @verbatim
-        <textarea readonly rows="8" style="width:100%;font-family:monospace;font-size:12px;">sudo mkdir -p /etc/serverdashboard
+        <textarea readonly rows="10" style="width:100%;font-family:monospace;font-size:12px;">sudo useradd --system --no-create-home --shell /usr/sbin/nologin serverdashboard 2>/dev/null || true
+sudo mkdir -p /etc/serverdashboard
 sudo tee /etc/serverdashboard/agent.env >/dev/null <<'EOF'
 DASHBOARD_ENDPOINT="https://your-dashboard-domain/ingest/other-server/<slug>/report"
 DASHBOARD_TOKEN="<paste the one-time token here>"
 EOF
-sudo chown nobody /etc/serverdashboard/agent.env
+sudo chown serverdashboard:serverdashboard /etc/serverdashboard/agent.env
 sudo chmod 600 /etc/serverdashboard/agent.env</textarea>
         @endverbatim
-        <p class="muted">Use the exact <strong>Endpoint</strong> and <strong>Token</strong> shown once above. The service in step 3 runs as the unprivileged <code>nobody</code> user, so the file is owned by <code>nobody</code>; <code>chmod 600</code> still ensures no other user account can read the token.</p>
+        <p class="muted">Use the exact <strong>Endpoint</strong> and <strong>Token</strong> shown once above. The service in step 3 runs as a dedicated, unprivileged <code>serverdashboard</code> system account (not the shared <code>nobody</code> account, which is also used by other services on the box) so the file is owned by <code>serverdashboard</code>; <code>chmod 600</code> ensures no other account, including <code>nobody</code>, can read the token.</p>
 
         <h3>2. Install the agent script</h3>
         @verbatim
@@ -155,9 +156,17 @@ set -euo pipefail
 
 CONFIG_FILE="/etc/serverdashboard/agent.env"
 [[ -f "$CONFIG_FILE" ]] || { echo "Missing $CONFIG_FILE" >&2; exit 1; }
-source "$CONFIG_FILE"
+
+# Parse KEY="VALUE" pairs without sourcing the file, so a writable/tampered
+# config can never execute arbitrary shell code.
+read_config_value() {
+    grep -E "^$1=" "$CONFIG_FILE" | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//'
+}
+DASHBOARD_ENDPOINT=$(read_config_value DASHBOARD_ENDPOINT)
+DASHBOARD_TOKEN=$(read_config_value DASHBOARD_TOKEN)
 : "${DASHBOARD_ENDPOINT:?not set}"
 : "${DASHBOARD_TOKEN:?not set}"
+[[ "$DASHBOARD_ENDPOINT" == https://* ]] || { echo "DASHBOARD_ENDPOINT must use https://" >&2; exit 1; }
 
 PKG_MGR=""
 if command -v apt-get >/dev/null 2>&1; then
@@ -242,6 +251,7 @@ SIGNATURE=$(printf '%s.%s.%s' "$TIMESTAMP" "$NONCE" "$BODY" \
     | RANDFILE=/dev/null openssl dgst -sha256 -hmac "$DASHBOARD_TOKEN" | awk '{print $2}')
 
 curl --fail --silent --show-error --tlsv1.2 \
+    --proto '=https' --proto-redir '=https' \
     -H "Content-Type: application/json" \
     -H "X-Server-Monitor-Timestamp: $TIMESTAMP" \
     -H "X-Server-Monitor-Nonce: $NONCE" \
@@ -252,7 +262,7 @@ EOF
 sudo chmod 755 /usr/local/bin/serverdashboard-agent.sh
 sudo chown root:root /usr/local/bin/serverdashboard-agent.sh</textarea>
         @endverbatim
-        <p class="muted">The script never needs <code>sudo</code>/root privileges at runtime &mdash; <code>apt-check</code>/<code>yum</code>/<code>dnf</code> and the package lists they read are world-readable, and the OS's own daily update-check timer already refreshes them. <code>755</code> lets the unprivileged <code>nobody</code> service account (step 3) execute it, but only root can modify it. The token only grants permission to submit update counts, nothing else.</p>
+        <p class="muted">The script never needs <code>sudo</code>/root privileges at runtime on standard distro configurations &mdash; <code>apt-check</code>/<code>yum</code>/<code>dnf</code> and the package lists they read are world-readable, and the OS's own daily update-check timer already refreshes them. (Verify this holds on hardened distributions or custom package-metadata setups before relying on it.) <code>755</code> lets the unprivileged <code>serverdashboard</code> service account (step 3) execute it, but only root can modify it. <code>--proto '=https'</code> refuses to run if the endpoint is ever misconfigured to a non-HTTPS URL, preventing protocol downgrade. The token only grants permission to submit update counts, nothing else.</p>
 
         <h3>3. Run it on a schedule with systemd (not root cron)</h3>
         @verbatim
@@ -262,11 +272,19 @@ Description=ServerDashboard update report
 
 [Service]
 Type=oneshot
-User=nobody
+User=serverdashboard
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+CapabilityBoundingSet=
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
 ExecStart=/usr/local/bin/serverdashboard-agent.sh
 EOF
 
@@ -287,16 +305,17 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now serverdashboard-agent.timer</textarea>
         @endverbatim
-        <p class="muted">The service runs as the unprivileged <code>nobody</code> user with <code>NoNewPrivileges</code> and a locked-down filesystem, so a compromised script or leaked token cannot be used to run commands on the box &mdash; it can only submit an update report through the signed endpoint.</p>
+        <p class="muted">The service runs as the dedicated, unprivileged <code>serverdashboard</code> user with <code>NoNewPrivileges</code>, a locked-down filesystem, and additional kernel/device/namespace restrictions, so a compromised script or leaked token cannot be used to run commands on the box &mdash; it can only submit an update report through the signed endpoint.</p>
 
         <h3>Why this is secure</h3>
         <ul>
             <li><strong>Outbound-only:</strong> the agent pushes data out over HTTPS; the dashboard never opens an inbound connection or stores SSH keys for your servers.</li>
-            <li><strong>Signed &amp; replay-proof:</strong> every report is HMAC-SHA256 signed with the per-server token, timestamped, and includes a single-use nonce &mdash; requests older than 5 minutes or reusing a nonce are rejected.</li>
-            <li><strong>Least privilege:</strong> the token can only submit update counts to one server's endpoint; the agent runs unprivileged and needs no <code>sudo</code> rights.</li>
-            <li><strong>TLS enforced:</strong> use an HTTPS dashboard URL only. Do not disable certificate verification in the script.</li>
-            <li><strong>Secrets at rest:</strong> the token file is <code>chmod 600</code>, root-owned, and never appears in shell history, process arguments, or logs.</li>
+            <li><strong>Signed &amp; replay-proof:</strong> every report is HMAC-SHA256 signed with the per-server token, timestamped, and includes a single-use nonce &mdash; the ingest endpoint rejects requests older than 5 minutes and enforces nonce uniqueness at the database level (a duplicate nonce insert is rejected as a replay), so this is enforced server-side, not just claimed by the agent.</li>
+            <li><strong>Least privilege:</strong> the token can only submit update counts to one server's endpoint; the agent runs as a dedicated unprivileged system account and needs no <code>sudo</code> rights.</li>
+            <li><strong>TLS enforced:</strong> use an HTTPS dashboard URL only; the agent refuses to run against a non-HTTPS endpoint and pins the curl request to the HTTPS protocol (<code>--proto '=https'</code>) to prevent downgrade. Do not disable certificate verification in the script.</li>
+            <li><strong>Secrets at rest:</strong> the token file is <code>chmod 600</code>, owned only by the dedicated <code>serverdashboard</code> account (not <code>root</code>, not the shared <code>nobody</code> account), parsed with a safe line-by-line reader instead of shell <code>source</code> (so a tampered config file can never execute arbitrary code), and never appears in shell history, process arguments, or logs.</li>
             <li><strong>Rotation:</strong> use "Rotate token" above immediately if a token may have leaked; the previous token stops working instantly.</li>
+            <li><strong>Optional hardening:</strong> for internal/enterprise deployments with a private CA, consider pinning the dashboard's certificate with curl's <code>--pinnedpubkey</code> option for defense against a compromised public CA; this isn't enabled by default since it requires re-pinning whenever the dashboard's certificate is rotated.</li>
         </ul>
 
         <h2 style="margin-top:18px;">Connecting a Windows Server (PowerShell Agent)</h2>
@@ -333,6 +352,7 @@ $DashboardEndpoint = $config["DASHBOARD_ENDPOINT"]
 $DashboardToken = $config["DASHBOARD_TOKEN"]
 if (-not $DashboardEndpoint) { Write-Error "DASHBOARD_ENDPOINT not set"; exit 1 }
 if (-not $DashboardToken) { Write-Error "DASHBOARD_TOKEN not set"; exit 1 }
+if ($DashboardEndpoint -notmatch '^https://') { Write-Error "DASHBOARD_ENDPOINT must use https://"; exit 1 }
 
 $total = 0
 $security = 0
