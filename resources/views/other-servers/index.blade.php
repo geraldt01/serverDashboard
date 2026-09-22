@@ -158,15 +158,27 @@ CONFIG_FILE="/etc/serverdashboard/agent.env"
 [[ -f "$CONFIG_FILE" ]] || { echo "Missing $CONFIG_FILE" >&2; exit 1; }
 
 # Parse KEY="VALUE" pairs without sourcing the file, so a writable/tampered
-# config can never execute arbitrary shell code.
+# config can never execute arbitrary shell code. Anchored so e.g. a
+# DASHBOARD_TOKEN_EXTRA= line can never be mistaken for DASHBOARD_TOKEN=, and
+# tolerant of CRLF line endings, surrounding whitespace, and quote style.
 read_config_value() {
-    grep -E "^$1=" "$CONFIG_FILE" | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//'
+    grep -E "^${1}[[:space:]]*=" "$CONFIG_FILE" \
+        | tail -n1 \
+        | cut -d'=' -f2- \
+        | tr -d '\r' \
+        | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//"
 }
 DASHBOARD_ENDPOINT=$(read_config_value DASHBOARD_ENDPOINT)
 DASHBOARD_TOKEN=$(read_config_value DASHBOARD_TOKEN)
 : "${DASHBOARD_ENDPOINT:?not set}"
 : "${DASHBOARD_TOKEN:?not set}"
 [[ "$DASHBOARD_ENDPOINT" == https://* ]] || { echo "DASHBOARD_ENDPOINT must use https://" >&2; exit 1; }
+case "$DASHBOARD_ENDPOINT" in
+    https://127.*|https://localhost*|https://169.254.169.254*|https://\[::1\]*|https://0.0.0.0*)
+        echo "DASHBOARD_ENDPOINT must not point to a loopback/link-local/metadata address" >&2
+        exit 1
+        ;;
+esac
 
 PKG_MGR=""
 if command -v apt-get >/dev/null 2>&1; then
@@ -316,6 +328,8 @@ sudo systemctl enable --now serverdashboard-agent.timer</textarea>
             <li><strong>Secrets at rest:</strong> the token file is <code>chmod 600</code>, owned only by the dedicated <code>serverdashboard</code> account (not <code>root</code>, not the shared <code>nobody</code> account), parsed with a safe line-by-line reader instead of shell <code>source</code> (so a tampered config file can never execute arbitrary code), and never appears in shell history, process arguments, or logs.</li>
             <li><strong>Rotation:</strong> use "Rotate token" above immediately if a token may have leaked; the previous token stops working instantly.</li>
             <li><strong>Optional hardening:</strong> for internal/enterprise deployments with a private CA, consider pinning the dashboard's certificate with curl's <code>--pinnedpubkey</code> option for defense against a compromised public CA; this isn't enabled by default since it requires re-pinning whenever the dashboard's certificate is rotated.</li>
+            <li><strong>Endpoint sanity check:</strong> the agent refuses to run if <code>DASHBOARD_ENDPOINT</code> points at a loopback, link-local, or cloud metadata address (e.g. <code>127.0.0.1</code>, <code>localhost</code>, <code>169.254.169.254</code>), catching accidental misconfiguration since the endpoint is an admin-supplied value.</li>
+            <li><strong>Token storage:</strong> the token currently lives in a plain, permission-restricted file, which is standard practice for this kind of agent. For very high-security environments, consider swapping it for systemd's <code>LoadCredential=</code>/<code>EnvironmentFile=</code> mechanism or a secrets manager (AWS Secrets Manager, SSM Parameter Store) &mdash; this is optional, deeper hardening left to the operator's environment, not enabled by default here.</li>
         </ul>
 
         <h2 style="margin-top:18px;">Connecting a Windows Server (PowerShell Agent)</h2>
@@ -353,6 +367,7 @@ $DashboardToken = $config["DASHBOARD_TOKEN"]
 if (-not $DashboardEndpoint) { Write-Error "DASHBOARD_ENDPOINT not set"; exit 1 }
 if (-not $DashboardToken) { Write-Error "DASHBOARD_TOKEN not set"; exit 1 }
 if ($DashboardEndpoint -notmatch '^https://') { Write-Error "DASHBOARD_ENDPOINT must use https://"; exit 1 }
+if ($DashboardEndpoint -match '^https://(127\.|localhost|169\.254\.169\.254|\[::1\]|0\.0\.0\.0)') { Write-Error "DASHBOARD_ENDPOINT must not point to a loopback/link-local/metadata address"; exit 1 }
 
 $total = 0
 $security = 0
