@@ -162,6 +162,9 @@ CONFIG_FILE="/etc/serverdashboard/agent.env"
 # DASHBOARD_TOKEN_EXTRA= line can never be mistaken for DASHBOARD_TOKEN=, and
 # tolerant of CRLF line endings, surrounding whitespace, and quote style.
 read_config_value() {
+    # Reject anything but a plain UPPER_SNAKE_CASE key so this can never be
+    # abused as a regex/grep injection point, even if called differently later.
+    [[ "$1" =~ ^[A-Z_]+$ ]] || { echo "Invalid config key: $1" >&2; exit 1; }
     grep -E "^${1}[[:space:]]*=" "$CONFIG_FILE" \
         | tail -n1 \
         | cut -d'=' -f2- \
@@ -328,7 +331,7 @@ sudo systemctl enable --now serverdashboard-agent.timer</textarea>
             <li><strong>Secrets at rest:</strong> the token file is <code>chmod 600</code>, owned only by the dedicated <code>serverdashboard</code> account (not <code>root</code>, not the shared <code>nobody</code> account), parsed with a safe line-by-line reader instead of shell <code>source</code> (so a tampered config file can never execute arbitrary code), and never appears in shell history, process arguments, or logs.</li>
             <li><strong>Rotation:</strong> use "Rotate token" above immediately if a token may have leaked; the previous token stops working instantly.</li>
             <li><strong>Optional hardening:</strong> for internal/enterprise deployments with a private CA, consider pinning the dashboard's certificate with curl's <code>--pinnedpubkey</code> option for defense against a compromised public CA; this isn't enabled by default since it requires re-pinning whenever the dashboard's certificate is rotated.</li>
-            <li><strong>Endpoint sanity check:</strong> the agent refuses to run if <code>DASHBOARD_ENDPOINT</code> points at a loopback, link-local, or cloud metadata address (e.g. <code>127.0.0.1</code>, <code>localhost</code>, <code>169.254.169.254</code>), catching accidental misconfiguration since the endpoint is an admin-supplied value.</li>
+            <li><strong>Endpoint sanity check:</strong> the agent refuses to run if <code>DASHBOARD_ENDPOINT</code> is missing <code>https://</code> or obviously points at a loopback, link-local, or cloud metadata address (e.g. <code>127.0.0.1</code>, <code>localhost</code>, <code>169.254.169.254</code>). This is a best-effort guard against misconfiguration/typos, not exhaustive SSRF protection (e.g. decimal/hex-encoded IPs or internally-resolved DNS names aren't caught) &mdash; acceptable here since the endpoint is an admin-supplied value in a root-owned config file, not attacker-controlled input.</li>
             <li><strong>Token storage:</strong> the token currently lives in a plain, permission-restricted file, which is standard practice for this kind of agent. For very high-security environments, consider swapping it for systemd's <code>LoadCredential=</code>/<code>EnvironmentFile=</code> mechanism or a secrets manager (AWS Secrets Manager, SSM Parameter Store) &mdash; this is optional, deeper hardening left to the operator's environment, not enabled by default here.</li>
         </ul>
 

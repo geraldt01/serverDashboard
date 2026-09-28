@@ -83,14 +83,17 @@ The reporter uses WordPress's native plugin and core update checks. It sends the
 
 ## Reporter Security
 
-The included reporter ZIP is version 1.7.0. It requires an HTTPS endpoint by default and will not submit reports to plain HTTP URLs in production. During development, an administrator can explicitly enable **Development HTTP endpoint** in the WordPress reporter settings, save, and use an `http://` endpoint temporarily. Disable that option before production because HTTP does not protect report metadata in transit.
+The included reporter ZIP is version 1.8.0. It requires an HTTPS endpoint by default and will not submit reports to plain HTTP URLs in production. During development, an administrator can explicitly enable **Development HTTP endpoint** in the WordPress reporter settings, save, and use an `http://` endpoint temporarily. This setting only takes effect while the site's `wp_get_environment_type()` reports `development` (set `WP_ENVIRONMENT_TYPE` in `wp-config.php` or as an env var) — it is ignored on staging/production even if left checked, so it can't accidentally downgrade a live site to unencrypted transport. Disable that option before production anyway because HTTP does not protect report metadata in transit.
 
 Enabling this option only removes the reporter's HTTPS validation. It does not make `127.0.0.1` reachable from another machine: a public WordPress site still needs an address that routes to the dashboard development machine, such as a LAN hostname, a temporary HTTPS tunnel, or the final public deployment domain. It provides the following protections:
 
 - The site token is encrypted before it is stored in WordPress and is never sent in an HTTP header or request body.
 - Each report contains an HMAC-SHA256 signature over the exact JSON payload, a cryptographically random nonce, and a timestamp.
-- The dashboard accepts reports only within five minutes and records every nonce, preventing replay of a captured request.
+- The dashboard accepts reports only within five minutes and records every nonce for ten minutes afterward, preventing replay of a captured request without accumulating unbounded transient entries.
 - HTTPS certificate validation is enforced, redirects are disabled, unsafe URLs are rejected, and the dashboard response is size-limited.
+- The configured endpoint's host is resolved and rejected if it points at a private (RFC1918), loopback, link-local, or other reserved IP range (this also blocks cloud metadata addresses like `169.254.169.254`), unless Development HTTP mode is active.
+- The dashboard-initiated `wp-json/serverdashboard/v1/trigger-report` REST endpoint rate-limits requests (one per 30 seconds) after signature verification, in addition to its existing HMAC authentication, timestamp window, and nonce replay protection.
+- Self-update manifests are signed (RSA-SHA256) by the dashboard and verified against a public key embedded in the plugin before the advertised download URL is ever trusted, so a compromised dashboard host can't push an unauthorized plugin "update".
 - Only WordPress administrators can change settings or run a manual report; both settings and manual actions are nonce-protected.
 - The plugin retains a redacted, local audit log of recent report outcomes. It never records the token or request body.
 

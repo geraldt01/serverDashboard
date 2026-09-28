@@ -234,15 +234,20 @@ class WordpressSiteController extends Controller
         }
 
         $version = $this->pluginHeaderValue($header, 'Version') ?? '0.0.0';
+        $downloadUrl = asset('downloads/serverdashboard-reporter.zip') . '?v=' . $version;
+        $manifestUrl = url('/wordpress-sites');
+        $requires = $this->pluginHeaderValue($header, 'Requires at least');
+        $requiresPhp = $this->pluginHeaderValue($header, 'Requires PHP');
 
         return response()->json([
             'name' => 'ServerDashboard Plugin Reporter',
             'version' => $version,
-            'download_url' => asset('downloads/serverdashboard-reporter.zip') . '?v=' . $version,
-            'url' => url('/wordpress-sites'),
-            'requires' => $this->pluginHeaderValue($header, 'Requires at least'),
-            'requires_php' => $this->pluginHeaderValue($header, 'Requires PHP'),
+            'download_url' => $downloadUrl,
+            'url' => $manifestUrl,
+            'requires' => $requires,
+            'requires_php' => $requiresPhp,
             'last_updated' => is_file($zipPath) ? date('Y-m-d H:i:s', filemtime($zipPath)) : null,
+            'manifest_signature' => $this->signUpdateManifest($version, $downloadUrl, $manifestUrl, $requires, $requiresPhp),
         ]);
     }
 
@@ -253,5 +258,36 @@ class WordpressSiteController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Signs the update manifest (RSA-SHA256) so the reporter plugin can verify a
+     * malicious/compromised host isn't pushing an unauthorized "update" package.
+     * The private key never leaves the server; the plugin only ever holds the
+     * matching hardcoded public key.
+     */
+    private function signUpdateManifest(string $version, string $downloadUrl, string $manifestUrl, ?string $requires, ?string $requiresPhp): ?string
+    {
+        $keyPath = config('dashboard.reporter_update_signing_key_path');
+        if (! is_string($keyPath) || $keyPath === '' || ! is_readable($keyPath)) {
+            Log::warning('ServerDashboard reporter update manifest signing key is missing; updates will be rejected by the plugin.');
+
+            return null;
+        }
+
+        $privateKey = openssl_pkey_get_private('file://' . $keyPath);
+        if ($privateKey === false) {
+            Log::warning('ServerDashboard reporter update manifest signing key could not be read.');
+
+            return null;
+        }
+
+        $payload = implode('|', [$version, $downloadUrl, $manifestUrl, (string) $requires, (string) $requiresPhp]);
+        $signature = '';
+        if (! openssl_sign($payload, $signature, $privateKey, OPENSSL_ALGO_SHA256)) {
+            return null;
+        }
+
+        return base64_encode($signature);
     }
 }

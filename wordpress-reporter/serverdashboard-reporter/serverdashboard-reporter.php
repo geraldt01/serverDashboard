@@ -2,7 +2,7 @@
 /**
  * Plugin Name: ServerDashboard Plugin Reporter
  * Description: Securely reports installed WordPress plugin/core/PHP update status, front-end traffic, and wp-admin logins to ServerDashboard.
- * Version: 1.7.0
+ * Version: 1.8.0
  * Requires at least: 5.8
  * Requires PHP: 7.4
  * License: GPL-2.0-or-later
@@ -16,12 +16,29 @@ const SERVER_DASHBOARD_REPORTER_OPTION = 'serverdashboard_reporter_settings';
 const SERVER_DASHBOARD_REPORTER_AUDIT_OPTION = 'serverdashboard_reporter_audit_log';
 const SERVER_DASHBOARD_REPORTER_CRON = 'serverdashboard_reporter_daily_report';
 const SERVER_DASHBOARD_REPORTER_SCHEDULE = 'serverdashboard_six_hourly';
-const SERVER_DASHBOARD_REPORTER_VERSION = '1.7.0';
+const SERVER_DASHBOARD_REPORTER_VERSION = '1.8.0';
 const SERVER_DASHBOARD_REPORTER_VERSION_OPTION = 'serverdashboard_reporter_version';
 const SERVER_DASHBOARD_REPORTER_MAX_AUDIT_EVENTS = 20;
 const SERVER_DASHBOARD_REPORTER_TRIGGER_NONCE_PREFIX = 'sdr_trigger_nonce_';
+const SERVER_DASHBOARD_REPORTER_TRIGGER_REPLAY_TTL = 10 * MINUTE_IN_SECONDS;
+const SERVER_DASHBOARD_REPORTER_TRIGGER_RATE_LIMIT_TRANSIENT = 'serverdashboard_reporter_trigger_last';
+const SERVER_DASHBOARD_REPORTER_TRIGGER_MIN_INTERVAL = 30;
 const SERVER_DASHBOARD_REPORTER_UPDATE_MANIFEST_TRANSIENT = 'serverdashboard_reporter_update_manifest';
 const SERVER_DASHBOARD_REPORTER_TRAFFIC_OPTION = 'serverdashboard_reporter_traffic_count';
+
+// Public half of the RSA keypair used to sign the self-update manifest (private key
+// lives only on the dashboard server). Verified in serverdashboard_reporter_verify_update_manifest().
+const SERVER_DASHBOARD_REPORTER_UPDATE_PUBLIC_KEY = <<<'PEM'
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApSJdDzqvCkO4Gzmt2ewk
+nFmdLtj6mLyyTVBDlbuSq32aeUp8CZujW0PKKEJIgkOeOk/80bDfLkUybjZJHyf8
+4cRROcti3z77E6rjPyig+Cr4ifFRh4cBZu53CbdlLZv57gvug8nUaTuosnU7PhKE
+51BcXNqE5HmxInsiTZtghbuhIRHQVvftTvGfhLJhJa8QtTToz9L1nj5y8ESBqKa+
+Y1rEWoSThNdgyPk/IuMVTfd1lGZkyRrI0VUM1pTOYHEzlRen263TJsqFacckNFbp
+gFS6sF48t1jpSAtTQtTZ3hHZnqH9PESAMLLq8hJNpPB+sD4/fIlBHdJWnf24gzd2
+RQIDAQAB
+-----END PUBLIC KEY-----
+PEM;
 
 function serverdashboard_reporter_audit(string $event, string $message): void
 {
@@ -92,12 +109,61 @@ function serverdashboard_reporter_decrypt_token(string $encryptedToken): string
     return is_string($token) ? $token : '';
 }
 
+/**
+ * Development HTTP is only honored when the site itself is explicitly marked as a
+ * development environment (WP_ENVIRONMENT_TYPE=development), so the checkbox can't be
+ * left on by accident (or copied into a production config) and silently downgrade a
+ * live site to unencrypted transport.
+ */
 function serverdashboard_reporter_is_development_http_endpoint(string $endpoint, bool $allowDevelopmentHttp): bool
 {
+    if (! $allowDevelopmentHttp || wp_get_environment_type() !== 'development') {
+        return false;
+    }
+
     $parts = wp_parse_url($endpoint);
     $scheme = strtolower((string) ($parts['scheme'] ?? ''));
 
-    return $allowDevelopmentHttp && $scheme === 'http';
+    return $scheme === 'http';
+}
+
+/**
+ * Resolves the host and rejects private (RFC1918), loopback, link-local (covers cloud
+ * metadata services like 169.254.169.254), and other reserved IP ranges, so a
+ * misconfigured or malicious endpoint value can't be used to make this site's
+ * outbound reports/update checks target internal infrastructure (SSRF hardening).
+ */
+function serverdashboard_reporter_host_is_internal(string $host): bool
+{
+    $ips = [];
+
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        $ips[] = $host;
+    } else {
+        foreach ((array) @dns_get_record($host, DNS_A + DNS_AAAA) as $record) {
+            $ips[] = $record['ip'] ?? ($record['ipv6'] ?? null);
+        }
+        $ips = array_filter($ips);
+
+        if ($ips === []) {
+            $resolved = gethostbyname($host);
+            if ($resolved !== $host) {
+                $ips[] = $resolved;
+            }
+        }
+    }
+
+    if ($ips === []) {
+        return true;
+    }
+
+    foreach ($ips as $ip) {
+        if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function serverdashboard_reporter_validate_endpoint(string $endpoint, bool $allowDevelopmentHttp = false): string
@@ -109,6 +175,10 @@ function serverdashboard_reporter_validate_endpoint(string $endpoint, bool $allo
     $isDevelopmentHttpEndpoint = serverdashboard_reporter_is_development_http_endpoint($endpoint, $allowDevelopmentHttp);
 
     if (! is_array($parts) || ! in_array($scheme, ['https', 'http'], true) || empty($host) || isset($parts['user'], $parts['pass']) || isset($parts['fragment']) || ($scheme === 'https' && ! wp_http_validate_url($endpoint)) || ($scheme !== 'https' && ! $isDevelopmentHttpEndpoint)) {
+        return '';
+    }
+
+    if (! $isDevelopmentHttpEndpoint && serverdashboard_reporter_host_is_internal($host)) {
         return '';
     }
 
@@ -197,7 +267,7 @@ function serverdashboard_reporter_render_settings(): void
                 </tr>
                 <tr>
                     <th scope="row">Development transport</th>
-                    <td><label><input name="<?php echo esc_attr(SERVER_DASHBOARD_REPORTER_OPTION); ?>[allow_development_http]" type="checkbox" value="1" <?php checked($settings['allow_development_http']); ?>> Allow a temporary HTTP reporter endpoint for development only.</label><p class="description">Disable this before production. HTTP does not protect report metadata in transit.</p></td>
+                    <td><label><input name="<?php echo esc_attr(SERVER_DASHBOARD_REPORTER_OPTION); ?>[allow_development_http]" type="checkbox" value="1" <?php checked($settings['allow_development_http']); ?>> Allow a temporary HTTP reporter endpoint for development only.</label><p class="description">Disable this before production. HTTP does not protect report metadata in transit. This only takes effect while <code>wp_get_environment_type()</code> reports <code>development</code> (set <code>WP_ENVIRONMENT_TYPE</code> in <code>wp-config.php</code> or the <code>WP_ENVIRONMENT_TYPE</code> env var) — it is ignored on staging/production.</p></td>
                 </tr>
             </table>
             <?php submit_button('Save secure settings'); ?>
@@ -553,11 +623,19 @@ function serverdashboard_reporter_handle_trigger_report(\WP_REST_Request $reques
         return new \WP_REST_Response(['ok' => false, 'message' => 'Invalid signature.'], 401);
     }
 
+    // Rate limit only after the signature is verified, so an attacker without the
+    // token can't lock out legitimate trigger requests by spamming this endpoint.
+    if (get_transient(SERVER_DASHBOARD_REPORTER_TRIGGER_RATE_LIMIT_TRANSIENT)) {
+        serverdashboard_reporter_audit('trigger_rate_limited', 'Rejected a trigger-report request due to rate limiting.');
+        return new \WP_REST_Response(['ok' => false, 'message' => 'Too many requests.'], 429);
+    }
+    set_transient(SERVER_DASHBOARD_REPORTER_TRIGGER_RATE_LIMIT_TRANSIENT, 1, SERVER_DASHBOARD_REPORTER_TRIGGER_MIN_INTERVAL);
+
     $nonceKey = SERVER_DASHBOARD_REPORTER_TRIGGER_NONCE_PREFIX . md5($nonce);
     if (get_transient($nonceKey)) {
         return new \WP_REST_Response(['ok' => false, 'message' => 'Duplicate request.'], 401);
     }
-    set_transient($nonceKey, 1, DAY_IN_SECONDS);
+    set_transient($nonceKey, 1, SERVER_DASHBOARD_REPORTER_TRIGGER_REPLAY_TTL);
 
     serverdashboard_reporter_audit('trigger_received', 'Dashboard requested an immediate report.');
 
@@ -624,9 +702,46 @@ function serverdashboard_reporter_fetch_update_manifest(): ?array
         return null;
     }
 
+    if (! serverdashboard_reporter_verify_update_manifest($data)) {
+        serverdashboard_reporter_audit('update_manifest_rejected', 'Update manifest signature verification failed.');
+        return null;
+    }
+
     set_transient(SERVER_DASHBOARD_REPORTER_UPDATE_MANIFEST_TRANSIENT, $data, 6 * HOUR_IN_SECONDS);
 
     return $data;
+}
+
+/**
+ * Verifies the manifest's RSA-SHA256 signature against the hardcoded public key before
+ * the download_url is ever trusted, so a compromised dashboard host can't push an
+ * unauthorized/malicious plugin "update" package.
+ */
+function serverdashboard_reporter_verify_update_manifest(array $data): bool
+{
+    if (! function_exists('openssl_verify') || empty($data['manifest_signature'])) {
+        return false;
+    }
+
+    $signature = base64_decode((string) $data['manifest_signature'], true);
+    if ($signature === false) {
+        return false;
+    }
+
+    $publicKey = openssl_pkey_get_public(SERVER_DASHBOARD_REPORTER_UPDATE_PUBLIC_KEY);
+    if ($publicKey === false) {
+        return false;
+    }
+
+    $payload = implode('|', [
+        (string) $data['version'],
+        (string) $data['download_url'],
+        (string) ($data['url'] ?? ''),
+        (string) ($data['requires'] ?? ''),
+        (string) ($data['requires_php'] ?? ''),
+    ]);
+
+    return openssl_verify($payload, $signature, $publicKey, OPENSSL_ALGO_SHA256) === 1;
 }
 
 /**
