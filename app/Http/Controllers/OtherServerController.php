@@ -214,8 +214,12 @@ class OtherServerController extends Controller
             'os_name' => $validated['osName'] ?? $otherServer->os_name,
             'total_updates' => $validated['totalUpdates'],
             'security_updates' => $validated['securityUpdates'],
-            'update_details' => $validated['updateDetails'] ?? null,
-            'security_update_details' => $validated['securityUpdateDetails'] ?? null,
+            'update_details' => $request->exists('updateDetails')
+                ? ($validated['updateDetails'] ?? null)
+                : $otherServer->update_details,
+            'security_update_details' => $request->exists('securityUpdateDetails')
+                ? ($validated['securityUpdateDetails'] ?? null)
+                : $otherServer->security_update_details,
             'reboot_required' => $validated['rebootRequired'],
             'php_version' => $validated['phpVersion'] ?? $otherServer->php_version,
             'php_update_available' => $validated['phpUpdateAvailable'] ?? false,
