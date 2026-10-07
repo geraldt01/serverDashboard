@@ -5,6 +5,7 @@ Laravel 10 dashboard for monitoring WordPress plugin updates, website traffic, a
 ## Included Features
 
 - Session login with `admin` and `viewer` roles.
+- Mandatory mobile authenticator MFA (TOTP) with local QR enrollment and single-use recovery codes.
 - Admin user management and role assignment.
 - Website traffic meters and a multi-site traffic chart.
 - Secure WordPress plugin update ingestion.
@@ -21,6 +22,16 @@ This workspace is configured for SQLite and XAMPP PHP.
 ```
 
 Open `http://127.0.0.1:8000/login`.
+
+### Authenticator MFA
+
+Deploy the new code and run `php artisan migrate --force` before accepting logins. Keep the existing `APP_KEY`: MFA secrets are encrypted with it, and changing it makes those secrets unreadable. Existing password-only sessions must sign in again.
+
+All dashboard users enroll on their next successful password login. Scan the setup QR code with Google Authenticator, Microsoft Authenticator, or a compatible TOTP app, then enter its six-digit code. A manual setup key is also available. Setup is only saved after the code is verified.
+
+Eight recovery codes are displayed once after enrollment. Store them in a password manager or another secure offline location. Subsequent logins require the password followed by an authenticator code or one unused recovery code. There is no remembered-device bypass. Pending logins expire after ten minutes; MFA verification is limited per account and IP, and accepted authenticator codes cannot be reused. Keep the server and phone clocks synchronized.
+
+If both the authenticator and all recovery codes are lost, a trusted server administrator must verify the user's identity outside the application before clearing that user's `two_factor_secret`, `two_factor_recovery_codes`, `two_factor_confirmed_at`, `two_factor_last_used_at`, and `remember_token` columns. This revokes their existing dashboard access and requires fresh enrollment. There is intentionally no public MFA reset endpoint.
 
 ### Scheduled Tasks (Frontend Page Checks)
 

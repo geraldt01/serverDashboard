@@ -15,7 +15,7 @@ class UserManagementTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $user = User::factory()->create(['name' => 'Old Name', 'email' => 'old@example.com', 'role' => 'viewer']);
 
-        $response = $this->actingAs($admin)->put(route('users.update', $user), [
+        $response = $this->actingAsVerifiedUser($admin)->put(route('users.update', $user), [
             'name' => 'New Name',
             'email' => 'new@example.com',
             'role' => 'admin',
@@ -36,7 +36,7 @@ class UserManagementTest extends TestCase
         $user = User::factory()->create(['role' => 'viewer']);
         $originalPassword = $user->password;
 
-        $response = $this->actingAs($admin)->put(route('users.update', $user), [
+        $response = $this->actingAsVerifiedUser($admin)->put(route('users.update', $user), [
             'name' => $user->name,
             'email' => $user->email,
             'role' => $user->role,
@@ -52,7 +52,7 @@ class UserManagementTest extends TestCase
         $user = User::factory()->create(['role' => 'viewer']);
         $originalPassword = $user->password;
 
-        $response = $this->actingAs($admin)->put(route('users.update', $user), [
+        $response = $this->actingAsVerifiedUser($admin)->put(route('users.update', $user), [
             'name' => $user->name,
             'email' => $user->email,
             'role' => $user->role,
@@ -69,7 +69,7 @@ class UserManagementTest extends TestCase
         $viewer = User::factory()->create(['role' => 'viewer']);
         $user = User::factory()->create(['role' => 'viewer']);
 
-        $this->actingAs($viewer)->put(route('users.update', $user), [
+        $this->actingAsVerifiedUser($viewer)->put(route('users.update', $user), [
             'name' => 'New Name',
             'email' => 'new@example.com',
             'role' => 'admin',
@@ -82,10 +82,17 @@ class UserManagementTest extends TestCase
         $existing = User::factory()->create(['email' => 'taken@example.com']);
         $user = User::factory()->create(['email' => 'user@example.com']);
 
-        $this->actingAs($admin)->put(route('users.update', $user), [
+        $this->actingAsVerifiedUser($admin)->put(route('users.update', $user), [
             'name' => $user->name,
             'email' => 'taken@example.com',
             'role' => 'viewer',
         ])->assertSessionHasErrors('email');
+    }
+
+    private function actingAsVerifiedUser(User $user): static
+    {
+        $user->forceFill(['two_factor_confirmed_at' => now()])->save();
+
+        return $this->withSession(['mfa.verified_user' => $user->id])->actingAs($user);
     }
 }

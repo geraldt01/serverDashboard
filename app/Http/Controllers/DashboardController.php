@@ -182,13 +182,20 @@ class DashboardController extends Controller
             'password' => ['required', 'string', 'min:8', 'max:128'],
         ]);
 
-        if (! Auth::attempt($credentials, $request->boolean('remember'))) {
+        if (! Auth::validate($credentials)) {
             return back()->withErrors(['email' => 'The provided credentials are incorrect.'])->onlyInput('email');
         }
 
+        $user = Auth::getProvider()->retrieveByCredentials($credentials);
         $request->session()->regenerate();
+        $request->session()->forget(['mfa.secret', 'mfa.recovery_codes', 'mfa.verified_user']);
+        $request->session()->put('mfa.pending', [
+            'user_id' => $user->id,
+            'password_hash' => hash('sha256', $user->password),
+            'expires_at' => now()->addMinutes(10)->timestamp,
+        ]);
 
-        return redirect()->intended(route('dashboard'));
+        return redirect()->route('mfa.challenge');
     }
 
     public function logout(Request $request)

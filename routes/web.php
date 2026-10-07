@@ -3,9 +3,11 @@
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MonitoringIngestController;
 use App\Http\Controllers\OtherServerController;
+use App\Http\Controllers\TwoFactorAuthenticationController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\WebpageCheckController;
 use App\Http\Controllers\WordpressSiteController;
+use App\Http\Middleware\EnsureTwoFactorAuthenticated;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -22,7 +24,14 @@ use Illuminate\Support\Facades\Route;
 Route::get('/login', fn () => view('auth.login'))->middleware('guest')->name('login');
 Route::post('/login', [DashboardController::class, 'login'])->middleware(['guest', 'throttle:5,1'])->name('login.store');
 
-Route::middleware('auth')->group(function () {
+Route::middleware('guest')->group(function () {
+    Route::get('/login/authenticator', [TwoFactorAuthenticationController::class, 'show'])->name('mfa.challenge');
+    Route::post('/login/authenticator', [TwoFactorAuthenticationController::class, 'verify'])->middleware('throttle:10,1,mfa:')->name('mfa.verify');
+    Route::post('/login/authenticator/cancel', [TwoFactorAuthenticationController::class, 'cancel'])->name('mfa.cancel');
+});
+
+Route::middleware(['auth', EnsureTwoFactorAuthenticated::class])->group(function () {
+    Route::get('/account/recovery-codes', [TwoFactorAuthenticationController::class, 'recoveryCodes'])->name('mfa.recovery-codes');
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/logout', [DashboardController::class, 'logout'])->name('logout');
     Route::post('/monitor/ec2/sync', [MonitoringIngestController::class, 'syncEc2'])->middleware('role:admin')->name('monitor.ec2.sync');
