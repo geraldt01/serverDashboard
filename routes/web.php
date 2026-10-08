@@ -3,6 +3,7 @@
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MonitoringIngestController;
 use App\Http\Controllers\OtherServerController;
+use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TwoFactorAuthenticationController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\WebpageCheckController;
@@ -34,6 +35,11 @@ Route::middleware(['auth', EnsureTwoFactorAuthenticated::class])->group(function
     Route::get('/account/recovery-codes', [TwoFactorAuthenticationController::class, 'recoveryCodes'])->name('mfa.recovery-codes');
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/logout', [DashboardController::class, 'logout'])->name('logout');
+    Route::middleware('role:admin')->group(function () {
+        Route::resource('support-tickets', SupportTicketController::class)->only(['index', 'create', 'store', 'show', 'update']);
+        Route::get('/support-tickets/{supportTicket}/attachments/{attachment}/download', [SupportTicketController::class, 'download'])
+            ->name('support-tickets.attachments.download');
+    });
     Route::post('/monitor/ec2/sync', [MonitoringIngestController::class, 'syncEc2'])->middleware('role:admin')->name('monitor.ec2.sync');
     Route::get('/users', [UserManagementController::class, 'index'])->middleware('role:admin')->name('users.index');
     Route::post('/users', [UserManagementController::class, 'store'])->middleware('role:admin')->name('users.store');

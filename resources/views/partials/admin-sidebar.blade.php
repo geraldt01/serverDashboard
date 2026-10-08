@@ -5,6 +5,7 @@
         <a class="{{ request()->routeIs('wordpress-sites.*') ? 'is-active' : '' }}" href="{{ route('wordpress-sites.index') }}"><span class="ic">&#9703;</span> WordPress Sites</a>
         <a class="{{ request()->routeIs('other-servers.*') ? 'is-active' : '' }}" href="{{ route('other-servers.index') }}"><span class="ic">&#9704;</span> Other Servers</a>
         <a class="{{ request()->routeIs('webpage-checks.*') ? 'is-active' : '' }}" href="{{ route('webpage-checks.index') }}"><span class="ic">&#9707;</span> Frontend Page Checks</a>
+        <a class="{{ request()->routeIs('support-tickets.*') ? 'is-active' : '' }}" href="{{ route('support-tickets.index') }}"><span class="ic" aria-hidden="true">&#9993;</span> Support Ticketing</a>
         <a class="{{ request()->routeIs('users.*') ? 'is-active' : '' }}" href="{{ route('users.index') }}"><span class="ic">&#9706;</span> User Management</a>
     </nav>
 </aside>

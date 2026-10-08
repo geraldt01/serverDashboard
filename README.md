@@ -7,6 +7,7 @@ Laravel 10 dashboard for monitoring WordPress plugin updates, website traffic, a
 - Session login with `admin` and `viewer` roles.
 - Mandatory mobile authenticator MFA (TOTP) with local QR enrollment and single-use recovery codes.
 - Admin user management and role assignment.
+- Admin support ticketing with issue details, reporter, start/finish times, statuses, and private AWS S3 attachments.
 - Website traffic meters and a multi-site traffic chart.
 - Secure WordPress plugin update ingestion.
 - AWS EC2 and Systems Manager patch state sync.
@@ -32,6 +33,54 @@ All dashboard users enroll on their next successful password login. Scan the set
 Eight recovery codes are displayed once after enrollment. Store them in a password manager or another secure offline location. Subsequent logins require the password followed by an authenticator code or one unused recovery code. There is no remembered-device bypass. Pending logins expire after ten minutes; MFA verification is limited per account and IP, and accepted authenticator codes cannot be reused. Keep the server and phone clocks synchronized.
 
 If both the authenticator and all recovery codes are lost, a trusted server administrator must verify the user's identity outside the application before clearing that user's `two_factor_secret`, `two_factor_recovery_codes`, `two_factor_confirmed_at`, `two_factor_last_used_at`, and `remember_token` columns. This revokes their existing dashboard access and requires fresh enrollment. There is intentionally no public MFA reset endpoint.
+
+### Support Ticketing and S3 Attachments
+
+Sign in as an `admin` and open **Support Ticketing** in the left menu. Create a ticket with an issue title, issue details, and the name of the person who reported it. Start and finish times use the application's configured timezone (UTC by default). In-progress tickets require a start time; resolved tickets require both times, with finish at or after start. To reopen a resolved ticket, change its status; the finished time is cleared. Tickets can be searched and filtered by status.
+
+Deploy with `composer install` and `php artisan migrate --force`. The included `league/flysystem-aws-s3-v3` dependency enables Laravel's S3 disk. Tickets without attachments work without AWS configuration; attachment uploads always use the `s3` disk regardless of `FILESYSTEM_DISK`.
+
+1. Create a private S3 bucket in your chosen AWS region. Keep **Block all public access** enabled and **Object Ownership: Bucket owner enforced**. Enable default bucket encryption (SSE-S3); do not add a public-read bucket policy.
+2. Set the following environment variables on the dashboard server. Use the bucket's actual region. These AWS settings are shared with the dashboard's existing AWS integrations, so retain their required permissions and compatible region settings.
+
+   ```env
+   AWS_DEFAULT_REGION=ap-southeast-2
+   AWS_BUCKET=your-private-support-bucket
+   AWS_ACCESS_KEY_ID=your-access-key-id
+   AWS_SECRET_ACCESS_KEY=your-secret-access-key
+   AWS_USE_PATH_STYLE_ENDPOINT=false
+   ```
+
+   Prefer an IAM role on AWS hosting instead of static credentials; leave the key and secret empty to use the AWS SDK credential provider chain. Never commit credentials. Standard AWS S3 does not need `AWS_URL` or `AWS_ENDPOINT`.
+3. Attach a policy like the following to the dashboard's IAM identity, replacing `your-private-support-bucket` with your bucket name:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": ["s3:ListBucket"],
+         "Resource": "arn:aws:s3:::your-private-support-bucket",
+         "Condition": {
+           "StringLike": {"s3:prefix": ["support-tickets", "support-tickets/*"]}
+         }
+       },
+       {
+         "Effect": "Allow",
+         "Action": ["s3:GetObject", "s3:PutObject", "s3:PutObjectAcl", "s3:DeleteObject"],
+         "Resource": "arn:aws:s3:::your-private-support-bucket/support-tickets/*"
+       }
+     ]
+   }
+   ```
+
+   Uploads specify `bucket-owner-full-control`, which is accepted by bucket-owner-enforced buckets without making files public. Delete permission is used to clean up uploads when saving fails. SSE-KMS buckets additionally require appropriate KMS permissions and key policy access.
+4. Run `php artisan config:cache` after updating the server environment. Create a ticket with a small attachment, then download it from the ticket detail page to confirm bucket access.
+
+Attachments are stored under `support-tickets/{ticket-id}/` with generated filenames. Original names and file metadata are stored in the database. Downloads are streamed through authenticated, MFA-verified, admin-only routes; no public S3 URLs are exposed. Existing files remain when new files are added. An upload failure rolls back the ticket changes and attempts to remove files uploaded during that submission; cleanup failures are logged for administrator follow-up.
+
+Each submission accepts up to five files of 10 MB each: JPG/JPEG, PNG, GIF, WebP, PDF, TXT, CSV, DOC/DOCX, XLS/XLSX, and ZIP. Set PHP `upload_max_filesize` to at least `10M`, `post_max_size` above `50M` (for example `64M`), and `max_file_uploads` to at least `5`. Match any reverse-proxy request size limit. Files are type-checked and downloaded as attachments, but not malware-scanned; scan downloaded files before opening them. Avoid bucket lifecycle rules that delete these files while ticket records are still retained.
 
 ### Scheduled Tasks (Frontend Page Checks)
 
