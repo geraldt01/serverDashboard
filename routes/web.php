@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MonitoringIngestController;
+use App\Http\Controllers\MonthlyReportController;
 use App\Http\Controllers\OtherServerController;
 use App\Http\Controllers\SupportTicketController;
 use App\Http\Controllers\TwoFactorAuthenticationController;
@@ -25,6 +26,10 @@ use Illuminate\Support\Facades\Route;
 Route::get('/login', fn () => view('auth.login'))->middleware('guest')->name('login');
 Route::post('/login', [DashboardController::class, 'login'])->middleware(['guest', 'throttle:5,1'])->name('login.store');
 
+Route::get('/reports/monthly/{token}', [MonthlyReportController::class, 'publicReport'])
+    ->middleware('throttle:30,1')
+    ->name('monthly-reports.public');
+
 Route::middleware('guest')->group(function () {
     Route::get('/login/authenticator', [TwoFactorAuthenticationController::class, 'show'])->name('mfa.challenge');
     Route::post('/login/authenticator', [TwoFactorAuthenticationController::class, 'verify'])->middleware('throttle:10,1,mfa:')->name('mfa.verify');
@@ -36,6 +41,9 @@ Route::middleware(['auth', EnsureTwoFactorAuthenticated::class])->group(function
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::post('/logout', [DashboardController::class, 'logout'])->name('logout');
     Route::middleware('role:admin')->group(function () {
+        Route::get('/reporting/settings', [MonthlyReportController::class, 'settings'])->name('monthly-reports.settings');
+        Route::put('/reporting/settings', [MonthlyReportController::class, 'updateSettings'])->name('monthly-reports.settings.update');
+        Route::post('/reporting/settings/rotate-link', [MonthlyReportController::class, 'rotateToken'])->name('monthly-reports.settings.rotate');
         Route::resource('support-tickets', SupportTicketController::class)->only(['index', 'create', 'store', 'show', 'update']);
         Route::get('/support-tickets/{supportTicket}/attachments/{attachment}/download', [SupportTicketController::class, 'download'])
             ->name('support-tickets.attachments.download');

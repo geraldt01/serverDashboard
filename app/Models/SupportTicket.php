@@ -19,6 +19,11 @@ class SupportTicket extends Model
         return $this->hasMany(SupportTicketAttachment::class);
     }
 
+    public function changes(): HasMany
+    {
+        return $this->hasMany(SupportTicketChange::class)->latest();
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');

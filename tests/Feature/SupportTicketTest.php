@@ -37,7 +37,26 @@ class SupportTicketTest extends TestCase
         $this->assertNotNull($ticket->created_by);
         $attachment = $ticket->attachments->first();
         Storage::disk('s3')->assertExists($attachment->path);
+        $this->assertSame('error.txt', $ticket->changes()->firstOrFail()->changes['attachments']['after']);
         $this->get(route('support-tickets.attachments.download', [$ticket, $attachment]))->assertDownload('error.txt');
+    }
+
+    public function test_ticket_creation_and_updates_record_actor_and_field_diffs(): void
+    {
+        $this->asAdmin()->post(route('support-tickets.store'), $this->ticketData())->assertSessionHasNoErrors();
+        $ticket = SupportTicket::firstOrFail();
+        $creation = $ticket->changes()->firstOrFail();
+        $this->assertSame('created', $creation->action);
+        $this->assertSame('Website unavailable', $creation->changes['title']['after']);
+        $this->assertNotNull($creation->actor_id);
+
+        $this->put(route('support-tickets.update', $ticket), array_merge($this->ticketData(), ['title' => 'Checkout unavailable']))
+            ->assertSessionHasNoErrors();
+        $update = $ticket->changes()->firstOrFail();
+        $this->assertSame('updated', $update->action);
+        $this->assertSame('Website unavailable', $update->changes['title']['before']);
+        $this->assertSame('Checkout unavailable', $update->changes['title']['after']);
+        $this->get(route('support-tickets.show', $ticket))->assertSee('Change history')->assertSee('Checkout unavailable');
     }
 
     public function test_upload_uses_private_visibility_and_bucket_owner_acl(): void

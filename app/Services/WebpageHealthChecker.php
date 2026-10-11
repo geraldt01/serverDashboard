@@ -21,6 +21,48 @@ class WebpageHealthChecker
     private const MAX_TOTAL_SECONDS = 20;
 
     /**
+     * Check only HTTP availability, without parsing or probing page resources.
+     *
+     * @return array{is_up:bool,http_status:?int,response_time_ms:?int,detail:?string}
+     */
+    public function checkAvailability(string $url): array
+    {
+        if (! $this->isUrlSafeToFetch($url)) {
+            return ['is_up' => false, 'http_status' => null, 'response_time_ms' => null, 'detail' => 'URL is not a public HTTP(S) address.'];
+        }
+
+        $client = new Client([
+            'timeout' => 10,
+            'connect_timeout' => 5,
+            'http_errors' => false,
+            'allow_redirects' => false,
+            'stream' => true,
+            'headers' => ['User-Agent' => 'ServerDashboard-Uptime/1.0'],
+        ]);
+        $started = microtime(true);
+
+        try {
+            $response = $client->request('GET', $url);
+            $status = $response->getStatusCode();
+            $response->getBody()->close();
+
+            return [
+                'is_up' => $status >= 200 && $status < 400,
+                'http_status' => $status,
+                'response_time_ms' => (int) round((microtime(true) - $started) * 1000),
+                'detail' => $status >= 400 ? "HTTP {$status}" : null,
+            ];
+        } catch (\Throwable $exception) {
+            return [
+                'is_up' => false,
+                'http_status' => null,
+                'response_time_ms' => (int) round((microtime(true) - $started) * 1000),
+                'detail' => 'HTTP request failed: ' . $this->shortMessage($exception),
+            ];
+        }
+    }
+
+    /**
      * @param array<int, string> $requiredElements
      * @return array{status:string,http_status:?int,response_time_ms:?int,broken_images:array,broken_videos:array,missing_elements:array,error:?string}
      */

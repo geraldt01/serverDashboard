@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\SupportTicket;
 use App\Models\SupportTicketAttachment;
+use App\Models\SupportTicketChange;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -49,7 +51,7 @@ class SupportTicketController extends Controller
 
     public function show(SupportTicket $supportTicket)
     {
-        return view('support-tickets.show', ['ticket' => $supportTicket->load('attachments', 'creator')]);
+        return view('support-tickets.show', ['ticket' => $supportTicket->load('attachments', 'creator', 'changes.actor')]);
     }
 
     public function update(Request $request, SupportTicket $supportTicket)
@@ -90,10 +92,24 @@ class SupportTicketController extends Controller
             $data['created_by'] = $request->user()->id;
         }
         $paths = [];
+        $isNew = ! $ticket->exists;
+        $fields = ['title', 'issue', 'reported_by', 'status', 'started_at', 'finished_at'];
+        $before = [];
+        foreach ($fields as $field) {
+            $before[$field] = $this->normalizeChangeValue($field, $ticket->getAttribute($field));
+        }
 
         try {
-            DB::transaction(function () use ($ticket, $data, $request, &$paths) {
+            DB::transaction(function () use ($ticket, $data, $request, &$paths, $fields, $before, $isNew) {
                 $ticket->fill($data)->save();
+                $changes = [];
+                foreach ($fields as $field) {
+                    $after = $this->normalizeChangeValue($field, $data[$field] ?? null);
+                    if ($isNew || $before[$field] !== $after) {
+                        $changes[$field] = ['before' => $isNew ? null : $before[$field], 'after' => $after];
+                    }
+                }
+                $addedAttachments = [];
                 foreach ($request->file('attachments', []) as $file) {
                     $directory = 'support-tickets/'.$ticket->id;
                     $filename = Str::uuid().'.'.$file->extension();
@@ -107,13 +123,24 @@ class SupportTicketController extends Controller
                     if ($stored === false) {
                         throw new RuntimeException('Support ticket attachment upload failed.');
                     }
+                    $originalName = Str::limit(basename(str_replace('\\', '/', $file->getClientOriginalName())), 255, '');
                     $ticket->attachments()->create([
-                        'original_name' => Str::limit(basename(str_replace('\\', '/', $file->getClientOriginalName())), 255, ''),
+                        'original_name' => $originalName,
                         'path' => $path,
                         'mime_type' => $file->getMimeType() ?: 'application/octet-stream',
                         'size' => $file->getSize(),
                     ]);
+                    $addedAttachments[] = $originalName;
                 }
+                if ($addedAttachments !== []) {
+                    $changes['attachments'] = ['before' => null, 'after' => implode(', ', $addedAttachments)];
+                }
+                SupportTicketChange::create([
+                    'support_ticket_id' => $ticket->id,
+                    'actor_id' => $request->user()->id,
+                    'action' => $isNew ? 'created' : 'updated',
+                    'changes' => $changes,
+                ]);
             });
         } catch (Throwable $exception) {
             report($exception);
@@ -132,5 +159,18 @@ class SupportTicketController extends Controller
         }
 
         return $ticket;
+    }
+
+    private function normalizeChangeValue(string $field, mixed $value): mixed
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (in_array($field, ['started_at', 'finished_at'], true)) {
+            return ($value instanceof Carbon ? $value : Carbon::parse($value))->format('Y-m-d H:i:s');
+        }
+
+        return $value;
     }
 }

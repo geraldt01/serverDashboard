@@ -23,4 +23,14 @@
             @endforelse
         </ul>
     </section>
+    <section class="panel content ticket-section">
+        <h2>Change history</h2>
+        <div class="scroll"><table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Changes</th></tr></thead><tbody>
+            @forelse($ticket->changes as $change)
+                <tr><td>{{ $change->created_at->format('M d, Y H:i') }}</td><td>{{ $change->actor?->name ?? 'Former user' }}</td><td>{{ ucfirst($change->action) }}</td><td>@forelse($change->changes as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ $values['before'] ?? '—' }} → {{ $values['after'] ?? '—' }}<br>@empty No field values changed @endforelse</td></tr>
+            @empty
+                <tr><td colspan="4">No change history recorded.</td></tr>
+            @endforelse
+        </tbody></table></div>
+    </section>
 @endsection

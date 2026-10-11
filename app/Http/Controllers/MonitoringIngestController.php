@@ -215,6 +215,7 @@ class MonitoringIngestController extends Controller
                 foreach ($patchStates['InstancePatchStates'] as $state) {
                     $records[] = [
                         'instance_id' => $state['InstanceId'],
+                        'aws_region' => $region,
                         'instance_name' => $names[$state['InstanceId']] ?? $state['InstanceId'],
                         'missing_count' => $state['MissingCount'] ?? 0,
                         'security_count' => $state['SecurityNonCompliantCount'] ?? 0,

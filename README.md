@@ -82,9 +82,19 @@ Attachments are stored under `support-tickets/{ticket-id}/` with generated filen
 
 Each submission accepts up to five files of 10 MB each: JPG/JPEG, PNG, GIF, WebP, PDF, TXT, CSV, DOC/DOCX, XLS/XLSX, and ZIP. Set PHP `upload_max_filesize` to at least `10M`, `post_max_size` above `50M` (for example `64M`), and `max_file_uploads` to at least `5`. Match any reverse-proxy request size limit. Files are type-checked and downloaded as attachments, but not malware-scanned; scan downloaded files before opening them. Avoid bucket lifecycle rules that delete these files while ticket records are still retained.
 
-### Scheduled Tasks (Frontend Page Checks)
+### Monthly IT and Security Reporting
 
-Registered webpages under **Frontend Page Checks** are re-checked automatically every hour via the `webpage-checks:run` command in Laravel's scheduler (`app/Console/Kernel.php`). The scheduler itself needs something invoking it every minute:
+Run `php artisan migrate --force`, configure the production SMTP mailer, sign in as an admin, and open **Reporting Settings** to enter the manager's email address. The public report uses a 256-bit random bearer link; anyone who has it can view the report, so share it only with the intended recipient. Rotate the link from Reporting Settings if it is disclosed. The email is scheduled for the 5th at 08:00 in the application's configured timezone and covers the previous complete calendar month.
+
+The report combines stored WordPress update/plugin/core/PHP reports, EC2 Systems Manager patch snapshots, five-minute uptime observations, ticket change history, user roles/MFA, and an operating guide. Uptime polling checks active WordPress site URLs and EC2 instance/system health in every enabled AWS region. An hourly read-only collector also records EC2 patch compliance across enabled regions; this does not install patches and queries only instances registered as Systems Manager managed nodes. The app's AWS identity needs `ec2:DescribeRegions`, `ec2:DescribeInstances`, `ec2:DescribeInstanceStatus`, `ssm:DescribeInstanceInformation`, `ssm:DescribeInstancePatchStates`, and `ce:GetCostAndUsage` (plus existing permissions for the manual patch-install action). Without those permissions, the report labels costs or monitoring data unavailable rather than inventing values.
+
+The dashboard does not integrate a CVE vulnerability scanner. WordPress outdated plugin/core reports and AWS security-patch counts are update findings, not confirmed exploitable vulnerabilities; any resolved count is inferred from a later report or a reduced patch count, not verified installation evidence. Backup rows are the stated policy only (weekly EC2, daily WP Engine); verify provider jobs monthly and record a quarterly restore test in Support Ticketing.
+
+Ticket creation and every edit now record the actor and changed fields. Historical changes made before this migration cannot be reconstructed. Keep the Laravel scheduler running every minute in production for both five-minute uptime probes and monthly delivery. The manager's report URL is generated from `APP_URL`; configure it to the canonical public HTTPS dashboard address.
+
+### Scheduled Tasks (Frontend Page Checks and Uptime)
+
+Registered webpages under **Frontend Page Checks** are re-checked automatically every hour via the `webpage-checks:run` command; uptime checks run every five minutes via `uptime:check`; the monthly report sends on the 5th via `reports:send-monthly`. All use Laravel's scheduler (`app/Console/Kernel.php`). The scheduler itself needs something invoking it every minute:
 
 - **Local development:** run `php artisan schedule:work` in a terminal and leave it running; it loops in the foreground and fires due tasks (no OS cron needed).
 - **Production (Linux):** add a single cron entry instead:

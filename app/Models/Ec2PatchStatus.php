@@ -11,6 +11,7 @@ class Ec2PatchStatus extends Model
 
     protected $fillable = [
         'instance_id',
+        'aws_region',
         'instance_name',
         'missing_count',
         'security_count',

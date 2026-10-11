@@ -13,6 +13,9 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule): void
     {
         $schedule->command('webpage-checks:run')->hourly()->withoutOverlapping();
+        $schedule->command('uptime:check')->everyFiveMinutes()->withoutOverlapping();
+        $schedule->command('ec2:collect-patch-status')->hourly()->withoutOverlapping();
+        $schedule->command('reports:send-monthly')->monthlyOn(5, '08:00')->withoutOverlapping();
     }
 
     /**
