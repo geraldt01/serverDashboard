@@ -20,7 +20,7 @@
     .report-section p:last-child { margin-bottom:0; }
     .report-table { border:1px solid #eadde7; border-radius:6px; overflow:hidden; }
     .report-table table { min-width:580px; }
-    .report-table th { color:#fff; background:linear-gradient(100deg,#c81e78,#7b2ff7); font-size:11px; }
+    .report-table th { color:#fff; background:#c81e78; font-size:11px; }
     .report-table td { font-size:13px; }
     .report-table tbody tr:nth-child(even) { background:#fbf5fa; }
     .report-table tbody tr:hover { background:#f6e8f1; }
