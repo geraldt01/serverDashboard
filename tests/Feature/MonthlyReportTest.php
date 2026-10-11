@@ -27,9 +27,9 @@ class MonthlyReportTest extends TestCase
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertHeader('X-Robots-Tag', 'noindex, nofollow')
             ->assertHeader('Referrer-Policy', 'no-referrer')
-            ->assertSee('IT and Security Report')
-            ->assertSee('Backup status')
-            ->assertSee('Systems and access register');
+            ->assertSee('IT &amp; Security Report', false)
+            ->assertSee('AWS costs and backup policy')
+            ->assertSee('Systems, access and operating guide');
     }
 
     public function test_admin_can_change_the_manager_email_and_rotate_the_report_link(): void
