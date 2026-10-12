@@ -6,6 +6,7 @@ use App\Models\MonthlyReportSetting;
 use App\Models\User;
 use App\Console\Commands\SendMonthlyItSecurityReport;
 use App\Mail\MonthlyItSecurityReportMail;
+use App\Services\AwsCostReport;
 use App\Services\MonthlyItSecurityReport;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -28,7 +29,8 @@ class MonthlyReportTest extends TestCase
             ->assertHeader('X-Robots-Tag', 'noindex, nofollow')
             ->assertHeader('Referrer-Policy', 'no-referrer')
             ->assertSee('IT &amp; Security Report', false)
-            ->assertSee('AWS costs and backup policy')
+            ->assertSee('AWS cost breakdown')
+            ->assertSee('Backup policy')
             ->assertSee('Systems, access and operating guide');
     }
 
@@ -65,6 +67,31 @@ class MonthlyReportTest extends TestCase
         $this->assertSame('September 2026', $period['label']);
         $this->assertSame('2026-09-01', $period['start']->toDateString());
         $this->assertSame('2026-10-01', $period['end']->toDateString());
+    }
+
+    public function test_public_report_renders_the_regional_cost_chart_when_cost_data_is_available(): void
+    {
+        $settings = MonthlyReportSetting::current();
+        $costReport = \Mockery::mock(AwsCostReport::class);
+        $costReport->shouldReceive('build')->once()->andReturn([
+            'available' => true,
+            'labels' => ['Apr 2026', 'May 2026'],
+            'regions' => [['name' => 'ap-southeast-2', 'data' => [120.5, 98.25], 'color' => '#5279df']],
+            'total' => 218.75,
+            'unit' => 'USD',
+            'range_label' => 'Last 6 months + current month to date',
+            'refreshed_at' => now(),
+            'data_note' => 'Fetched live. AWS billing data is not real-time and may be delayed.',
+        ]);
+        $this->app->instance(AwsCostReport::class, $costReport);
+
+        $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
+            ->assertOk()
+            ->assertSee('aws-cost-chart')
+            ->assertSee('Total cost: 218.75 USD')
+            ->assertSee('ap-southeast-2')
+            ->assertSee('Refresh costs')
+            ->assertSee('not real-time');
     }
 
     public function test_monthly_command_emails_report_link_to_configured_manager(): void

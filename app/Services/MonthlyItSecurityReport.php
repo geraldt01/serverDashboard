@@ -12,9 +12,7 @@ use App\Models\WebpageCheck;
 use App\Models\WordpressCoreUpdate;
 use App\Models\WordpressPluginUpdate;
 use App\Models\WordpressSite;
-use Aws\CostExplorer\CostExplorerClient;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\Cache;
 
 class MonthlyItSecurityReport
 {
@@ -55,7 +53,7 @@ class MonthlyItSecurityReport
         $patchesPending = (int) $latestEc2->sum('missing_count') + (int) $serverInventory->sum('total_updates');
         $siteUpdateFindings = $outdatedPlugins->count() + $outdatedCore->count();
         $uptime = $this->uptimeSummary($period);
-        $costs = $this->awsCosts($period);
+        $costs = app(AwsCostReport::class)->build();
 
         return [
             'period' => $period,
@@ -113,36 +111,6 @@ class MonthlyItSecurityReport
             'assets' => $assets,
             'target' => 99.9,
         ];
-    }
-
-    private function awsCosts(array $period): array
-    {
-        if (app()->environment('testing')) {
-            return ['available' => false, 'groups' => collect(), 'total' => null, 'unit' => null];
-        }
-
-        return Cache::remember('monthly-it-report-costs-'.$period['start']->toDateString(), now()->addHours(6), function () use ($period) {
-            try {
-                $client = new CostExplorerClient(['version' => 'latest', 'region' => 'us-east-1', 'retries' => 0, 'http' => ['connect_timeout' => 3, 'timeout' => 8]]);
-                $result = $client->getCostAndUsage([
-                    'TimePeriod' => ['Start' => $period['start']->toDateString(), 'End' => $period['end']->toDateString()],
-                    'Granularity' => 'MONTHLY',
-                    'Metrics' => ['UnblendedCost'],
-                    'GroupBy' => [['Type' => 'DIMENSION', 'Key' => 'SERVICE']],
-                ]);
-                $groups = collect($result['ResultsByTime'][0]['Groups'] ?? [])->map(fn ($group) => [
-                    'service' => $group['Keys'][0] ?? 'Other',
-                    'amount' => (float) ($group['Metrics']['UnblendedCost']['Amount'] ?? 0),
-                    'unit' => $group['Metrics']['UnblendedCost']['Unit'] ?? 'USD',
-                ])->sortByDesc('amount')->values();
-
-                return ['available' => true, 'groups' => $groups, 'total' => (float) ($result['ResultsByTime'][0]['Total']['UnblendedCost']['Amount'] ?? 0), 'unit' => $result['ResultsByTime'][0]['Total']['UnblendedCost']['Unit'] ?? 'USD'];
-            } catch (\Throwable $exception) {
-                report($exception);
-
-                return ['available' => false, 'groups' => collect(), 'total' => null, 'unit' => null];
-            }
-        });
     }
 
     private function improvement(int $securityPending, int $patchesPending, int $siteFindings, array $uptime): string

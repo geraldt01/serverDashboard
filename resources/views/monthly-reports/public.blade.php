@@ -58,7 +58,7 @@
         <div class="report-metric"><span>Pending server updates</span><strong>{{ $report['ec2']['patches_pending'] }}</strong><small>{{ $report['ec2']['security_pending'] }} security-related</small></div>
         <div class="report-metric"><span>WordPress sites</span><strong>{{ $report['sites']->count() }}</strong><small>Registered sites</small></div>
         <div class="report-metric"><span>Availability</span><strong>{{ $uptimeLabel }}</strong><small>Target 99.9%</small></div>
-        <div class="report-metric"><span>AWS cost</span><strong>{{ $report['costs']['available'] ? number_format($report['costs']['total'], 2) : 'Unavailable' }}</strong><small>{{ $report['costs']['available'] ? $report['costs']['unit'].' for the month' : 'Cost Explorer access required' }}</small></div>
+        <div class="report-metric"><span>AWS cost</span><strong>{{ $report['costs']['available'] ? number_format($report['costs']['total'], 2) : 'Unavailable' }}</strong><small>{{ $report['costs']['available'] ? $report['costs']['unit'].' · 6 months + current' : 'Cost Explorer access required' }}</small></div>
     </section>
 
     <section class="panel report-section">
@@ -103,16 +103,62 @@
         </tbody></table></div>
     </section>
 
+    <section class="panel report-section" id="aws-costs">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
+            <div><h2 style="margin-bottom:4px">AWS cost breakdown</h2><p class="muted">{{ $report['costs']['range_label'] ?? 'Last 6 months' }} · Grouped by AWS region</p></div>
+            <button type="button" class="secondary" onclick="window.location.reload()" aria-label="Refresh AWS cost report">Refresh costs</button>
+        </div>
+        @if ($report['costs']['available'])
+            <p style="margin:14px 0 4px"><strong>Total cost: {{ number_format($report['costs']['total'], 2) }} {{ $report['costs']['unit'] }}</strong></p>
+            <div style="height:300px;position:relative"><canvas id="aws-cost-chart" role="img" aria-label="Stacked monthly AWS cost chart by region"></canvas></div>
+            <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>Region</th><th>Total for period</th></tr></thead><tbody>
+                @foreach ($report['costs']['regions'] as $region)<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ $region['color'] }};margin-right:7px"></span>{{ $region['name'] }}</td><td>{{ number_format(array_sum($region['data']), 2) }} {{ $report['costs']['unit'] }}</td></tr>@endforeach
+            </tbody></table></div>
+            <script>
+                (() => {
+                    const canvas = document.getElementById('aws-cost-chart');
+                    if (!canvas || !window.Chart) return;
+                    const labels = @json($report['costs']['labels']);
+                    const regions = @json($report['costs']['regions']);
+                    new Chart(canvas, {
+                        type: 'bar',
+                        data: {
+                            labels,
+                            datasets: regions.map(region => ({
+                                label: region.name,
+                                data: region.data,
+                                backgroundColor: region.color,
+                                borderColor: region.color,
+                                borderWidth: 1,
+                                borderRadius: 2,
+                                maxBarThickness: 54,
+                            })),
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: { mode: 'index', intersect: false },
+                            plugins: {
+                                legend: { position: 'bottom', labels: { usePointStyle: true, pointStyle: 'rect', boxWidth: 10, padding: 18 } },
+                                tooltip: { callbacks: { label: context => `${context.dataset.label}: ${Number(context.raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {{ $report['costs']['unit'] }}` } },
+                            },
+                            scales: {
+                                x: { stacked: true, grid: { display: false } },
+                                y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Cost ({{ $report['costs']['unit'] }})' } },
+                            },
+                        },
+                    });
+                })();
+            </script>
+        @else
+            <p style="margin-top:16px">Cost data unavailable. Grant Cost Explorer access to the dashboard's AWS identity, then refresh the report.</p>
+        @endif
+        <p class="report-note" style="margin-top:12px">{{ $report['costs']['data_note'] ?? 'Fetched live from Cost Explorer; AWS billing data may be delayed.' }}</p>
+    </section>
+
     <details class="report-details">
-        <summary>AWS costs and backup policy</summary>
+        <summary>Backup policy</summary>
         <section class="panel report-section">
-            <h2>AWS cost breakdown</h2>
-            @if ($report['costs']['available'])
-                <div class="scroll report-table"><table><thead><tr><th>AWS service</th><th>Monthly cost</th></tr></thead><tbody>@forelse ($report['costs']['groups']->take(10) as $cost)<tr><td>{{ $cost['service'] }}</td><td>{{ number_format($cost['amount'], 2) }} {{ $cost['unit'] }}</td></tr>@empty<tr><td colspan="2">No service costs returned.</td></tr>@endforelse</tbody></table></div>
-            @else
-                <p>Cost data unavailable. Grant Cost Explorer access to the dashboard's AWS identity.</p>
-            @endif
-            <h3>Backup policy</h3>
             <div class="scroll report-table"><table><thead><tr><th>Systems</th><th>Reported schedule</th><th>Restore test</th></tr></thead><tbody>@foreach ($report['backups'] as $backup)<tr><td>{{ $backup['asset'] }}</td><td>{{ $backup['policy'] }}</td><td>{{ $backup['restore_test'] }}</td></tr>@endforeach</tbody></table></div>
             <p class="report-note" style="margin-top:10px">Backup schedules are reported policy only and are not verified against AWS or WP Engine. Review backup jobs monthly and test one restore in an isolated environment each quarter.</p>
         </section>
