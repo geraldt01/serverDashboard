@@ -106,6 +106,22 @@
         @else
             <p class="muted">No outdated WordPress plugin or core reports were recorded for this month.</p>
         @endif
+        <h3 style="margin-top:22px">Recent WordPress update history · last 30 days</h3>
+        <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Site</th><th>Type</th><th>Component</th><th>Version</th><th>Result</th></tr></thead><tbody>
+            @forelse ($report['wordpress_update_history'] as $event)
+                <tr>
+                    <td>{{ $event['at']?->format('j M Y, H:i') ?? 'Unknown' }}</td>
+                    <td>{{ $event['site'] }}</td>
+                    <td><span class="report-tag">{{ $event['type'] }}</span></td>
+                    <td>{{ $event['component'] }}</td>
+                    <td>{{ $event['current'] ?: 'Unknown' }}{{ $event['latest'] ? ' → '.$event['latest'] : '' }}</td>
+                    <td>{{ str_replace('_', ' ', ucfirst($event['status'])) }}</td>
+                </tr>
+            @empty
+                <tr><td colspan="6">No WordPress update reports have been recorded in the last 30 days.</td></tr>
+            @endforelse
+        </tbody></table></div>
+        <p class="report-note" style="margin-top:10px">This is reporter check history, not proof that an update was installed.</p>
     </section>
 
     <section class="panel report-section">

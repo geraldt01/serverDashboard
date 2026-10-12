@@ -35,6 +35,7 @@ class MonthlyItSecurityReport
         $sites = WordpressSite::query()->orderBy('name')->get();
         $pluginRows = WordpressPluginUpdate::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->get();
         $coreRows = WordpressCoreUpdate::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->get();
+        $wordpressUpdateHistory = $this->wordpressUpdateHistory();
         $ec2MonthRows = Ec2PatchStatus::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->orderBy('checked_at')->get();
         $patchHistory = $this->patchHistory();
         $webpageChecks = WebpageCheck::query()->where('is_active', true)->orderBy('name')->get();
@@ -65,6 +66,7 @@ class MonthlyItSecurityReport
             'ec2' => ['latest' => $latestEc2, 'count' => $ec2Uptime->count(), 'patch_instances' => $latestEc2->count(), 'patches_pending' => $patchesPending, 'security_pending' => $securityPatchesPending],
             'ec2_inventory' => $ec2Uptime,
             'patch_history' => $patchHistory,
+            'wordpress_update_history' => $wordpressUpdateHistory,
             'servers' => $serverInventory,
             'sites' => $sites,
             'webpage_checks' => $webpageChecks,
@@ -149,6 +151,52 @@ class MonthlyItSecurityReport
                 'summary' => "{$row->total_updates} updates pending; {$row->security_updates} security updates pending; reboot required: ".($row->reboot_required ? 'yes' : 'no').'.',
                 'details' => $details,
                 'type' => 'agent',
+            ];
+        }
+
+        usort($history, fn ($left, $right) => $right['at']->getTimestamp() <=> $left['at']->getTimestamp());
+
+        return array_slice($history, 0, 100);
+    }
+
+    private function wordpressUpdateHistory(): array
+    {
+        $since = CarbonImmutable::now()->subDays(30);
+        $pluginRows = WordpressPluginUpdate::query()
+            ->with('wordpressSite:id,name')
+            ->where('checked_at', '>=', $since)
+            ->orderByDesc('checked_at')
+            ->limit(100)
+            ->get();
+        $coreRows = WordpressCoreUpdate::query()
+            ->with('wordpressSite:id,name')
+            ->where('checked_at', '>=', $since)
+            ->orderByDesc('checked_at')
+            ->limit(100)
+            ->get();
+        $history = [];
+
+        foreach ($pluginRows as $row) {
+            $history[] = [
+                'at' => $row->checked_at,
+                'site' => $row->wordpressSite?->name ?? $row->site_name,
+                'component' => $row->plugin_name,
+                'type' => 'Plugin',
+                'current' => $row->current_version,
+                'latest' => $row->latest_version,
+                'status' => $row->status,
+            ];
+        }
+
+        foreach ($coreRows as $row) {
+            $history[] = [
+                'at' => $row->checked_at,
+                'site' => $row->wordpressSite?->name ?? $row->site_name,
+                'component' => 'WordPress core',
+                'type' => 'Core',
+                'current' => $row->current_version,
+                'latest' => $row->latest_version,
+                'status' => $row->status,
             ];
         }
 

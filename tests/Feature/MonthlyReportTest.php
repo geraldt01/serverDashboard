@@ -6,6 +6,9 @@ use App\Models\MonthlyReportSetting;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketChange;
 use App\Models\User;
+use App\Models\WordpressCoreUpdate;
+use App\Models\WordpressPluginUpdate;
+use App\Models\WordpressSite;
 use App\Console\Commands\SendMonthlyItSecurityReport;
 use App\Mail\MonthlyItSecurityReportMail;
 use App\Services\AwsCostReport;
@@ -118,6 +121,43 @@ class MonthlyReportTest extends TestCase
             ->assertSee($today->subMonth()->format('F Y').' changes')
             ->assertSee($today->format('F Y').' so far')
             ->assertSee('Production change ticket');
+    }
+
+    public function test_recent_wordpress_plugin_and_core_reports_appear_in_patch_history(): void
+    {
+        $settings = MonthlyReportSetting::current();
+        $site = WordpressSite::forceCreate([
+            'name' => 'Production WordPress',
+            'slug' => 'production-wordpress',
+            'url' => 'https://example.com',
+            'monitor_token' => hash('sha256', 'wp-report-test-token'),
+            'is_active' => true,
+        ]);
+        WordpressPluginUpdate::create([
+            'wordpress_site_id' => $site->id,
+            'site_name' => $site->name,
+            'plugin_name' => 'Cache Optimizer',
+            'current_version' => '1.2.0',
+            'latest_version' => '1.3.0',
+            'status' => 'outdated',
+            'checked_at' => now(),
+        ]);
+        WordpressCoreUpdate::create([
+            'wordpress_site_id' => $site->id,
+            'site_name' => $site->name,
+            'current_version' => '6.7.1',
+            'latest_version' => '6.7.2',
+            'status' => 'outdated',
+            'checked_at' => now(),
+        ]);
+
+        $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
+            ->assertOk()
+            ->assertSee('Recent WordPress update history · last 30 days')
+            ->assertSee('Cache Optimizer')
+            ->assertSee('1.2.0 → 1.3.0')
+            ->assertSee('WordPress core')
+            ->assertSee('6.7.1 → 6.7.2');
     }
 
     public function test_monthly_command_emails_report_link_to_configured_manager(): void
