@@ -35,6 +35,11 @@ class OtherServer extends Model
         'monitor_token_encrypted' => 'encrypted',
     ];
 
+    public function patchReports()
+    {
+        return $this->hasMany(OtherServerPatchReport::class);
+    }
+
     public function setMonitoringToken(string $token): void
     {
         $this->monitor_token = hash('sha256', $token);

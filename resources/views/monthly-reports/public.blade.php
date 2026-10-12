@@ -78,6 +78,20 @@
                 <tr><td><strong>{{ $server->name }}</strong><br><small>Agent-reported server</small></td><td>{{ $server->total_updates ?? 'Unknown' }}</td><td>{{ $server->security_updates ?? 'Unknown' }}</td><td>{{ $server->last_reported_at?->format('j M Y, H:i') ?? 'Never' }}</td></tr>
             @endforeach
         </tbody></table></div>
+        <h3 style="margin-top:22px">Recent patch history · last 30 days</h3>
+        <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Server</th><th>Source</th><th>Observed activity and update details</th></tr></thead><tbody>
+            @forelse ($report['patch_history'] as $event)
+                <tr>
+                    <td>{{ $event['at']->format('j M Y, H:i') }}</td>
+                    <td>{{ $event['server'] }}@if ($event['region'])<br><small>{{ $event['region'] }}</small>@endif</td>
+                    <td><span class="report-tag">{{ $event['source'] }}</span></td>
+                    <td>{{ $event['summary'] }}@if ($event['details'])<br><small>{{ \Illuminate\Support\Str::limit($event['details'], 1000) }}</small>@endif</td>
+                </tr>
+            @empty
+                <tr><td colspan="4">No patch history has been recorded yet. History begins as scheduled SSM checks and server-agent reports arrive.</td></tr>
+            @endforelse
+        </tbody></table></div>
+        <p class="report-note" style="margin-top:10px">SSM rows are compliance snapshots, not a record of a specific install command; installed counts are cumulative. Agent rows preserve reported pending package details. This log starts after the history migration is deployed and cannot reconstruct older reports.</p>
     </section>
 
     <section class="panel report-section">
@@ -165,9 +179,9 @@
     </details>
 
     <details class="report-details">
-        <summary>Config App change log</summary>
+        <summary>Config App change log · {{ $report['ticket_changes']->count() }} for {{ $report['period']['label'] }} · {{ $report['current_ticket_changes']->count() }} this month</summary>
         <section class="panel report-section">
-            <h2>Support ticket changes</h2>
+            <h2>{{ $report['period']['label'] }} changes</h2>
             <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Ticket</th><th>Changed by</th><th>What changed</th></tr></thead><tbody>
                 @forelse ($report['ticket_changes'] as $change)
                     <tr><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $change->actor?->name ?? 'Former user' }}</td><td>@forelse ($change->changes as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $change->action }} @endforelse</td></tr>
@@ -176,6 +190,14 @@
                 @endforelse
             </tbody></table></div>
             <p class="report-note" style="margin-top:10px">Detailed change history starts from the date this feature was deployed; older edits cannot be reconstructed.</p>
+            <h2 style="margin-top:22px">{{ now()->format('F Y') }} so far</h2>
+            <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Ticket</th><th>Changed by</th><th>What changed</th></tr></thead><tbody>
+                @forelse ($report['current_ticket_changes'] as $change)
+                    <tr><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $change->actor?->name ?? 'Former user' }}</td><td>@forelse ($change->changes as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $change->action }} @endforelse</td></tr>
+                @empty
+                    <tr><td colspan="4">No ticket changes recorded so far this month.</td></tr>
+                @endforelse
+            </tbody></table></div>
         </section>
     </details>
 

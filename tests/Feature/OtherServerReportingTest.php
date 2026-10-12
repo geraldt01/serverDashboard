@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\OtherServer;
+use App\Models\MonthlyReportSetting;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -58,11 +59,28 @@ class OtherServerReportingTest extends TestCase
             'update_details' => 'first-package 1.2',
             'security_update_details' => 'first-package 1.2 security update',
         ]);
+        $this->assertDatabaseHas('other_server_patch_reports', [
+            'other_server_id' => $firstServer->id,
+            'total_updates' => 1,
+            'security_updates' => 1,
+            'update_details' => 'first-package 1.2',
+        ]);
         $this->assertDatabaseHas('other_servers', [
             'id' => $secondServer->id,
             'update_details' => 'second-package 4.5',
             'security_update_details' => null,
         ]);
+        $this->assertDatabaseHas('other_server_patch_reports', [
+            'other_server_id' => $secondServer->id,
+            'update_details' => 'second-package 4.5',
+        ]);
+
+        $reportSettings = MonthlyReportSetting::current();
+        $this->get(route('monthly-reports.public', ['token' => $reportSettings->public_token]))
+            ->assertOk()
+            ->assertSee('Recent patch history · last 30 days')
+            ->assertSee('first-package 1.2')
+            ->assertSee('second-package 4.5');
     }
 
     private function createServer(string $name, string $slug, string $token, array $attributes = []): OtherServer

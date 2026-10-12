@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\OtherServer;
+use App\Models\OtherServerPatchReport;
 use Aws\Ssm\SsmClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -210,6 +211,7 @@ class OtherServerController extends Controller
             'checkedAt' => ['nullable', 'date'],
         ]);
 
+        $reportedAt = $validated['checkedAt'] ?? now();
         $otherServer->update([
             'os_name' => $validated['osName'] ?? $otherServer->os_name,
             'total_updates' => $validated['totalUpdates'],
@@ -223,7 +225,17 @@ class OtherServerController extends Controller
             'reboot_required' => $validated['rebootRequired'],
             'php_version' => $validated['phpVersion'] ?? $otherServer->php_version,
             'php_update_available' => $validated['phpUpdateAvailable'] ?? false,
-            'last_reported_at' => $validated['checkedAt'] ?? now(),
+            'last_reported_at' => $reportedAt,
+        ]);
+
+        OtherServerPatchReport::create([
+            'other_server_id' => $otherServer->id,
+            'total_updates' => $validated['totalUpdates'],
+            'security_updates' => $validated['securityUpdates'],
+            'reboot_required' => $validated['rebootRequired'],
+            'update_details' => $request->exists('updateDetails') ? ($validated['updateDetails'] ?? null) : $otherServer->update_details,
+            'security_update_details' => $request->exists('securityUpdateDetails') ? ($validated['securityUpdateDetails'] ?? null) : $otherServer->security_update_details,
+            'reported_at' => $reportedAt,
         ]);
 
         return response()->json(['message' => 'Server update report saved.'], 201);

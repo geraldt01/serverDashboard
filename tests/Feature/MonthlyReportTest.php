@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\MonthlyReportSetting;
+use App\Models\SupportTicket;
+use App\Models\SupportTicketChange;
 use App\Models\User;
 use App\Console\Commands\SendMonthlyItSecurityReport;
 use App\Mail\MonthlyItSecurityReportMail;
@@ -92,6 +94,30 @@ class MonthlyReportTest extends TestCase
             ->assertSee('ap-southeast-2')
             ->assertSee('Refresh costs')
             ->assertSee('not real-time');
+    }
+
+    public function test_ticket_created_this_month_appears_in_current_month_change_log(): void
+    {
+        $today = CarbonImmutable::now();
+        $settings = MonthlyReportSetting::current();
+        $ticket = SupportTicket::create([
+            'title' => 'Production change ticket',
+            'issue' => 'Production configuration was updated.',
+            'reported_by' => 'Production operator',
+            'status' => 'open',
+        ]);
+        SupportTicketChange::create([
+            'support_ticket_id' => $ticket->id,
+            'actor_id' => null,
+            'action' => 'created',
+            'changes' => ['title' => ['before' => null, 'after' => $ticket->title]],
+        ]);
+
+        $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
+            ->assertOk()
+            ->assertSee($today->subMonth()->format('F Y').' changes')
+            ->assertSee($today->format('F Y').' so far')
+            ->assertSee('Production change ticket');
     }
 
     public function test_monthly_command_emails_report_link_to_configured_manager(): void

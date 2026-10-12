@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Ec2PatchStatus;
 use App\Models\MonthlyReportSetting;
 use App\Models\OtherServer;
+use App\Models\OtherServerPatchReport;
 use App\Models\SupportTicketChange;
 use App\Models\User;
 use App\Models\UptimeCheck;
@@ -35,10 +36,14 @@ class MonthlyItSecurityReport
         $pluginRows = WordpressPluginUpdate::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->get();
         $coreRows = WordpressCoreUpdate::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->get();
         $ec2MonthRows = Ec2PatchStatus::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->orderBy('checked_at')->get();
+        $patchHistory = $this->patchHistory();
         $webpageChecks = WebpageCheck::query()->where('is_active', true)->orderBy('name')->get();
         $users = User::query()->orderBy('name')->get(['name', 'email', 'role', 'two_factor_confirmed_at']);
         $ticketChanges = SupportTicketChange::query()->with(['ticket', 'actor'])
             ->whereBetween('created_at', [$period['start'], $period['end']->subSecond()])
+            ->latest()->get();
+        $currentTicketChanges = SupportTicketChange::query()->with(['ticket', 'actor'])
+            ->whereBetween('created_at', [CarbonImmutable::now()->startOfMonth(), CarbonImmutable::now()])
             ->latest()->get();
         $outdatedPlugins = $pluginRows->where('status', 'outdated')->unique(fn ($row) => $row->wordpress_site_id.':'.$row->plugin_name)->values();
         $outdatedCore = $coreRows->where('status', 'outdated')->unique('wordpress_site_id')->values();
@@ -59,10 +64,12 @@ class MonthlyItSecurityReport
             'period' => $period,
             'ec2' => ['latest' => $latestEc2, 'count' => $ec2Uptime->count(), 'patch_instances' => $latestEc2->count(), 'patches_pending' => $patchesPending, 'security_pending' => $securityPatchesPending],
             'ec2_inventory' => $ec2Uptime,
+            'patch_history' => $patchHistory,
             'servers' => $serverInventory,
             'sites' => $sites,
             'webpage_checks' => $webpageChecks,
             'ticket_changes' => $ticketChanges,
+            'current_ticket_changes' => $currentTicketChanges,
             'vulnerabilities' => [
                 'plugin_findings' => $outdatedPlugins,
                 'core_findings' => $outdatedCore,
@@ -111,6 +118,43 @@ class MonthlyItSecurityReport
             'assets' => $assets,
             'target' => 99.9,
         ];
+    }
+
+    private function patchHistory(): array
+    {
+        $since = CarbonImmutable::now()->subDays(30);
+        $ec2Rows = Ec2PatchStatus::query()->where('checked_at', '>=', $since)->orderByDesc('checked_at')->limit(100)->get();
+        $agentRows = OtherServerPatchReport::query()->with('server')->where('reported_at', '>=', $since)->orderByDesc('reported_at')->limit(100)->get();
+        $history = [];
+
+        foreach ($ec2Rows as $row) {
+            $history[] = [
+                'at' => $row->checked_at,
+                'server' => $row->instance_name,
+                'region' => $row->aws_region,
+                'source' => 'AWS SSM',
+                'summary' => "Compliance snapshot: {$row->missing_count} missing, {$row->security_count} security-related, {$row->installed_count} installed total, {$row->failed_count} failed.",
+                'details' => null,
+                'type' => 'snapshot',
+            ];
+        }
+
+        foreach ($agentRows as $row) {
+            $details = $row->security_update_details ?: $row->update_details;
+            $history[] = [
+                'at' => $row->reported_at,
+                'server' => $row->server?->name ?? 'Removed server',
+                'region' => null,
+                'source' => 'Server agent',
+                'summary' => "{$row->total_updates} updates pending; {$row->security_updates} security updates pending; reboot required: ".($row->reboot_required ? 'yes' : 'no').'.',
+                'details' => $details,
+                'type' => 'agent',
+            ];
+        }
+
+        usort($history, fn ($left, $right) => $right['at']->getTimestamp() <=> $left['at']->getTimestamp());
+
+        return array_slice($history, 0, 100);
     }
 
     private function improvement(int $securityPending, int $patchesPending, int $siteFindings, array $uptime): string
