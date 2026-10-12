@@ -71,6 +71,7 @@
 
     <section class="panel report-section">
         <h2>Server patch status</h2>
+        <h3>Current Status</h3>
         <div class="scroll report-table"><table><thead><tr><th>Server</th><th>Updates pending</th><th>Security updates</th><th>Last report</th></tr></thead><tbody>
             @forelse ($report['ec2']['latest'] as $instance)
                 <tr><td><strong>{{ $instance->instance_name }}</strong><br><small>{{ $instance->instance_id }}{{ $instance->aws_region ? ' · '.$instance->aws_region : '' }}</small></td><td>{{ $instance->missing_count }}</td><td>{{ $instance->security_count }}</td><td>{{ $instance->checked_at?->format('j M Y, H:i') ?? 'Unknown' }}</td></tr>
@@ -102,6 +103,7 @@
         <h2>WordPress updates</h2>
         <p>{{ $report['vulnerabilities']['plugin_findings']->count() }} outdated plugin finding(s), {{ $report['vulnerabilities']['core_findings']->count() }} outdated core finding(s); {{ $report['vulnerabilities']['resolved_update_findings'] }} update finding(s) cleared in later reports.</p>
         <p class="report-note">These are available-update findings, not results from a CVE scanner. No vulnerability scanner is integrated, and cleared findings are inferred from later reports rather than verified installation records. EC2 missing-patch counts decreased by an estimated {{ $report['vulnerabilities']['patches_fixed_estimate'] }} during the month.</p>
+        <h3>Current Status</h3>
         @if ($report['vulnerabilities']['plugin_findings']->isNotEmpty() || $report['vulnerabilities']['core_findings']->isNotEmpty())
             <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>Site</th><th>Component</th><th>Installed</th><th>Available</th></tr></thead><tbody>
                 @foreach ($report['vulnerabilities']['plugin_findings']->take(12) as $finding)<tr><td>{{ $finding->site_name }}</td><td>{{ $finding->plugin_name }}</td><td>{{ $finding->current_version }}</td><td>{{ $finding->latest_version }}</td></tr>@endforeach
