@@ -88,6 +88,24 @@ Run `php artisan migrate --force`, configure the production SMTP mailer, sign in
 
 The report combines stored WordPress update/plugin/core/PHP reports, EC2 Systems Manager patch snapshots, five-minute uptime observations, ticket change history, user roles/MFA, and an operating guide. Uptime polling checks active WordPress site URLs and EC2 instance/system health in every enabled AWS region. An hourly read-only collector also records EC2 patch compliance across enabled regions; this does not install patches and queries only instances registered as Systems Manager managed nodes. The AWS cost chart queries Cost Explorer on every report page load, grouped by region and month, for the previous six months plus current month-to-date; **Refresh costs** reloads that report. This is the freshest Cost Explorer result available, not minute-by-minute billing: AWS processes and updates cost data periodically, often with a delay of 24 hours or more. The app's AWS identity needs `ec2:DescribeRegions`, `ec2:DescribeInstances`, `ec2:DescribeInstanceStatus`, `ssm:DescribeInstanceInformation`, `ssm:DescribeInstancePatchStates`, and `ce:GetCostAndUsage` (plus existing permissions for the manual patch-install action). Without those permissions, the report labels costs or monitoring data unavailable rather than inventing values.
 
+To enable the cost chart, first enable Cost Explorer for the AWS account in **Billing and Cost Management → Cost Explorer**. Then attach this least-privilege read policy to the same IAM role/user that the dashboard's AWS SDK uses (Cost Explorer does not support resource-level scoping for this action):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadCostExplorerUsage",
+      "Effect": "Allow",
+      "Action": "ce:GetCostAndUsage",
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+Prefer the EC2 instance role in production. For local development, use freshly rotated AWS credentials through the AWS SDK credential chain or a named AWS profile; do not commit secrets. `AWS_DEFAULT_REGION` remains the region for EC2 operations, while Cost Explorer requests use its global `us-east-1` API endpoint. After changing server environment variables run `php artisan config:cache`. Verify the identity safely on the server with `aws sts get-caller-identity`, then test the permission with `aws ce get-cost-and-usage --time-period "Start=2026-10-01,End=2026-10-13" --granularity MONTHLY --metrics UnblendedCost --group-by "Type=DIMENSION,Key=REGION" --region us-east-1` (replace the dates with a valid range for your account). Never paste credential values into tickets or chat.
+
 The dashboard does not integrate a CVE vulnerability scanner. WordPress outdated plugin/core reports and AWS security-patch counts are update findings, not confirmed exploitable vulnerabilities; any resolved count is inferred from a later report or a reduced patch count, not verified installation evidence. Backup rows are the stated policy only (weekly EC2, daily WP Engine); verify provider jobs monthly and record a quarterly restore test in Support Ticketing.
 
 Ticket creation and every edit now record the actor and changed fields. Historical changes made before this migration cannot be reconstructed. Keep the Laravel scheduler running every minute in production for both five-minute uptime probes and monthly delivery. The manager's report URL is generated from `APP_URL`; configure it to the canonical public HTTPS dashboard address.
