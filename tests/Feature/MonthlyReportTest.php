@@ -29,7 +29,8 @@ class MonthlyReportTest extends TestCase
         $settings = MonthlyReportSetting::current();
 
         $this->get(route('monthly-reports.public', ['token' => str_repeat('a', 64)]))->assertNotFound();
-        $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
+        $response = $this->get(route('monthly-reports.public', ['token' => $settings->public_token]));
+        $response
             ->assertOk()
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertHeader('X-Robots-Tag', 'noindex, nofollow')
@@ -37,7 +38,9 @@ class MonthlyReportTest extends TestCase
             ->assertSee('IT &amp; Security Report', false)
             ->assertSee('AWS cost breakdown')
             ->assertSee('Backup policy')
+            ->assertSee('Config App change log')
             ->assertSee('Systems, access and operating guide');
+        $this->assertStringNotContainsString('<details', $response->getContent());
     }
 
     public function test_admin_can_change_the_manager_email_and_rotate_the_report_link(): void

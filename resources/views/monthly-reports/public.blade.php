@@ -193,18 +193,15 @@
         <p class="report-note" style="margin-top:12px">{{ $report['costs']['data_note'] ?? 'Fetched live from Cost Explorer; AWS billing data may be delayed.' }}</p>
     </section>
 
-    <details class="report-details">
-        <summary>Backup policy</summary>
-        <section class="panel report-section">
-            <div class="scroll report-table"><table><thead><tr><th>Systems</th><th>Reported schedule</th><th>Restore test</th></tr></thead><tbody>@foreach ($report['backups'] as $backup)<tr><td>{{ $backup['asset'] }}</td><td>{{ $backup['policy'] }}</td><td>{{ $backup['restore_test'] }}</td></tr>@endforeach</tbody></table></div>
-            <p class="report-note" style="margin-top:10px">Backup schedules are reported policy only and are not verified against AWS or WP Engine. Review backup jobs monthly and test one restore in an isolated environment each quarter.</p>
-        </section>
-    </details>
+    <section class="panel report-section">
+        <h2>Backup policy</h2>
+        <div class="scroll report-table"><table><thead><tr><th>Systems</th><th>Reported schedule</th><th>Restore test</th></tr></thead><tbody>@foreach ($report['backups'] as $backup)<tr><td>{{ $backup['asset'] }}</td><td>{{ $backup['policy'] }}</td><td>{{ $backup['restore_test'] }}</td></tr>@endforeach</tbody></table></div>
+        <p class="report-note" style="margin-top:10px">Backup schedules are reported policy only and are not verified against AWS or WP Engine. Review backup jobs monthly and test one restore in an isolated environment each quarter.</p>
+    </section>
 
-    <details class="report-details">
-        <summary>Config App change log · {{ $report['ticket_changes']->count() }} for {{ $report['period']['label'] }} · {{ $report['current_ticket_changes']->count() }} this month</summary>
-        <section class="panel report-section">
-            <h2>{{ $report['period']['label'] }} changes</h2>
+    <section class="panel report-section">
+            <h2>Config App change log · {{ $report['ticket_changes']->count() }} for {{ $report['period']['label'] }} · {{ $report['current_ticket_changes']->count() }} this month</h2>
+            <h3>{{ $report['period']['label'] }} changes</h3>
             <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Ticket</th><th>Changed by</th><th>What changed</th></tr></thead><tbody>
                 @forelse ($report['ticket_changes'] as $change)
                     <tr><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $change->actor?->name ?? 'Former user' }}</td><td>@forelse ($change->changes as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $change->action }} @endforelse</td></tr>
@@ -213,7 +210,7 @@
                 @endforelse
             </tbody></table></div>
             <p class="report-note" style="margin-top:10px">Detailed change history starts from the date this feature was deployed; older edits cannot be reconstructed.</p>
-            <h2 style="margin-top:22px">{{ now()->format('F Y') }} so far</h2>
+            <h3 style="margin-top:22px">{{ now()->format('F Y') }} so far</h3>
             <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Ticket</th><th>Changed by</th><th>What changed</th></tr></thead><tbody>
                 @forelse ($report['current_ticket_changes'] as $change)
                     <tr><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $change->actor?->name ?? 'Former user' }}</td><td>@forelse ($change->changes as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $change->action }} @endforelse</td></tr>
@@ -221,13 +218,11 @@
                     <tr><td colspan="4">No ticket changes recorded so far this month.</td></tr>
                 @endforelse
             </tbody></table></div>
-        </section>
-    </details>
+    </section>
 
-    <details class="report-details">
-        <summary>Systems, access and operating guide</summary>
-        <section class="panel report-section">
-            <h2>Dashboard access</h2>
+    <section class="panel report-section">
+            <h2>Systems, access and operating guide</h2>
+            <h3>Dashboard access</h3>
             <div class="scroll report-table"><table><thead><tr><th>User</th><th>Email</th><th>Role</th><th>Access</th><th>MFA</th></tr></thead><tbody>@forelse ($report['users'] as $user)<tr><td>{{ $user->name }}</td><td>{{ $user->email }}</td><td>{{ ucfirst($user->role) }}</td><td>{{ $user->role === 'admin' ? 'Manage dashboard, assets, settings and users' : 'View monitoring dashboard' }}</td><td>{{ $user->two_factor_confirmed_at ? 'Enabled' : 'Not enrolled' }}</td></tr>@empty<tr><td colspan="5">No dashboard users.</td></tr>@endforelse</tbody></table></div>
             <h3>WordPress site inventory</h3>
             <div class="scroll report-table"><table><thead><tr><th>Site</th><th>URL</th><th>Monitoring</th><th>Core</th><th>PHP</th></tr></thead><tbody>@forelse ($report['sites'] as $site)<tr><td>{{ $site->name }}</td><td><a href="{{ $site->url }}" rel="noreferrer">{{ $site->url }}</a></td><td>{{ $site->is_active ? 'Active' : 'Disabled' }}</td><td>{{ $site->last_core_status ?? 'No report' }}</td><td>{{ $site->last_php_version ?? 'No report' }}</td></tr>@empty<tr><td colspan="5">No WordPress sites registered.</td></tr>@endforelse</tbody></table></div>
@@ -249,8 +244,7 @@
                 <li><strong>Monthly review:</strong> verify backups, check AWS costs, choose one security/performance/cost improvement, then record the action and result in Support Ticketing.</li>
                 <li><strong>Report sharing:</strong> maintain the recipient in Reporting Settings. This link grants report access; rotate it if disclosed outside the intended audience.</li>
             </ol>
-        </section>
-    </details>
+    </section>
 
     <p class="report-footnote">Data is based on reports and checks received by this dashboard. Missing integration data is shown as unavailable, not assumed healthy. The 99.9% target, backup policies and update-fix estimates should be reviewed against provider records.</p>
 </div>
