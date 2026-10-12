@@ -25,6 +25,9 @@
     .report-table tbody tr:nth-child(even) { background:#fbf5fa; }
     .report-table tbody tr:hover { background:#f6e8f1; }
     .report-table tbody tr:last-child td { border-bottom:0; }
+    .report-pagination { display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:10px; color:#736c88; font-size:12px; }
+    .report-pagination button { padding:6px 10px; font-size:12px; }
+    .report-pagination button:disabled { opacity:.45; cursor:not-allowed; }
     .report-tag { display:inline-block; padding:4px 8px; border-radius:4px; color:#86144e; background:#f8e7f0; font-size:11px; font-weight:700; white-space:nowrap; }
     .report-note { padding:10px 12px; color:#62546b; background:#faf7fb; border-left:3px solid #c81e78; font-size:12px; }
     .report-list { margin:0; padding-left:19px; }
@@ -79,7 +82,7 @@
             @endforeach
         </tbody></table></div>
         <h3 style="margin-top:22px">Recent patch history · last 30 days</h3>
-        <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Server</th><th>Source</th><th>Observed activity and update details</th></tr></thead><tbody>
+        <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Date</th><th>Server</th><th>Source</th><th>Observed activity and update details</th></tr></thead><tbody>
             @forelse ($report['patch_history'] as $event)
                 <tr>
                     <td>{{ $event['at']->format('j M Y, H:i') }}</td>
@@ -91,6 +94,7 @@
                 <tr><td colspan="4">No patch history has been recorded yet. History begins as scheduled SSM checks and server-agent reports arrive.</td></tr>
             @endforelse
         </tbody></table></div>
+        <div class="report-pagination" data-pagination-controls aria-label="Server patch history pagination"><button type="button" data-page-previous aria-label="Previous server patch history page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next server patch history page">Next</button></div>
         <p class="report-note" style="margin-top:10px">SSM rows are compliance snapshots, not a record of a specific install command; installed counts are cumulative. Agent rows preserve reported pending package details. This log starts after the history migration is deployed and cannot reconstruct older reports.</p>
     </section>
 
@@ -107,7 +111,7 @@
             <p class="muted">No outdated WordPress plugin or core reports were recorded for this month.</p>
         @endif
         <h3 style="margin-top:22px">Recent WordPress update history · last 30 days</h3>
-        <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Site</th><th>Type</th><th>Component</th><th>Version</th><th>Result</th></tr></thead><tbody>
+        <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Date</th><th>Site</th><th>Type</th><th>Component</th><th>Version</th><th>Result</th></tr></thead><tbody>
             @forelse ($report['wordpress_update_history'] as $event)
                 <tr>
                     <td>{{ $event['at']?->format('j M Y, H:i') ?? 'Unknown' }}</td>
@@ -121,6 +125,7 @@
                 <tr><td colspan="6">No WordPress update reports have been recorded in the last 30 days.</td></tr>
             @endforelse
         </tbody></table></div>
+        <div class="report-pagination" data-pagination-controls aria-label="WordPress update history pagination"><button type="button" data-page-previous aria-label="Previous WordPress update history page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next WordPress update history page">Next</button></div>
         <p class="report-note" style="margin-top:10px">This is reporter check history, not proof that an update was installed.</p>
     </section>
 
@@ -247,4 +252,45 @@
 
     <p class="report-footnote">Data is based on reports and checks received by this dashboard. Missing integration data is shown as unavailable, not assumed healthy. The 99.9% target, backup policies and update-fix estimates should be reviewed against provider records.</p>
 </div>
+<script>
+    document.querySelectorAll('[data-report-pagination]').forEach((tableWrap) => {
+        const rows = Array.from(tableWrap.querySelectorAll('tbody tr'));
+        const controls = tableWrap.parentElement.querySelector('[data-pagination-controls]');
+        const pageSize = Number(tableWrap.dataset.pageSize) || 5;
+
+        if (!controls || rows.length <= pageSize || (rows.length === 1 && rows[0].querySelector('td[colspan]'))) {
+            controls?.remove();
+            return;
+        }
+
+        const pageCount = Math.ceil(rows.length / pageSize);
+        const status = controls.querySelector('[data-page-status]');
+        const previous = controls.querySelector('[data-page-previous]');
+        const next = controls.querySelector('[data-page-next]');
+        let page = 0;
+
+        const renderPage = () => {
+            rows.forEach((row, index) => {
+                row.hidden = index < page * pageSize || index >= (page + 1) * pageSize;
+            });
+            status.textContent = `Page ${page + 1} of ${pageCount}`;
+            previous.disabled = page === 0;
+            next.disabled = page === pageCount - 1;
+        };
+
+        previous.addEventListener('click', () => {
+            if (page > 0) {
+                page -= 1;
+                renderPage();
+            }
+        });
+        next.addEventListener('click', () => {
+            if (page < pageCount - 1) {
+                page += 1;
+                renderPage();
+            }
+        });
+        renderPage();
+    });
+</script>
 @endsection

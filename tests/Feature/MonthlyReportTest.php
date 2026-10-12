@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\MonthlyReportSetting;
+use App\Models\Ec2PatchStatus;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketChange;
 use App\Models\User;
@@ -158,6 +159,51 @@ class MonthlyReportTest extends TestCase
             ->assertSee('1.2.0 → 1.3.0')
             ->assertSee('WordPress core')
             ->assertSee('6.7.1 → 6.7.2');
+    }
+
+    public function test_recent_history_tables_have_independent_five_row_pagination_controls(): void
+    {
+        $settings = MonthlyReportSetting::current();
+        $site = WordpressSite::forceCreate([
+            'name' => 'Pagination Test Site',
+            'slug' => 'pagination-test-site',
+            'url' => 'https://pagination.example.com',
+            'monitor_token' => hash('sha256', 'pagination-test-token'),
+            'is_active' => true,
+        ]);
+
+        foreach (range(1, 6) as $number) {
+            Ec2PatchStatus::create([
+                'instance_id' => sprintf('i-%08x', $number),
+                'aws_region' => 'ap-southeast-2',
+                'instance_name' => 'History Server '.$number,
+                'missing_count' => 0,
+                'security_count' => 0,
+                'installed_count' => $number,
+                'failed_count' => 0,
+                'reboot_required' => false,
+                'checked_at' => now()->subMinutes($number),
+            ]);
+            WordpressPluginUpdate::create([
+                'wordpress_site_id' => $site->id,
+                'site_name' => $site->name,
+                'plugin_name' => 'History Plugin '.$number,
+                'current_version' => '1.0.'.$number,
+                'latest_version' => '1.0.'.$number,
+                'status' => 'up_to_date',
+                'checked_at' => now()->subMinutes($number),
+            ]);
+        }
+
+        $response = $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))->assertOk();
+        $content = $response->getContent();
+
+        $this->assertSame(2, substr_count($content, 'data-page-size="5"'));
+        $this->assertSame(2, substr_count($content, 'class="report-pagination" data-pagination-controls'));
+        $this->assertStringContainsString('Next server patch history page', $content);
+        $this->assertStringContainsString('Next WordPress update history page', $content);
+        $this->assertStringContainsString('History Server 6', $content);
+        $this->assertStringContainsString('History Plugin 6', $content);
     }
 
     public function test_monthly_command_emails_report_link_to_configured_manager(): void
