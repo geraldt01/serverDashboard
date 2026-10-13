@@ -6,6 +6,7 @@ use App\Models\SupportTicket;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -88,7 +89,7 @@ class SupportTicketTest extends TestCase
         ]]);
         Storage::forgetDisk('s3');
         $this->asAdmin()->post(route('support-tickets.store'), $this->ticketData() + [
-            'attachments' => [UploadedFile::fake()->create('error.txt', 1, 'text/plain')],
+            'attachments' => [UploadedFile::fake()->create('error.png', 1, 'image/png')],
         ])->assertSessionHasNoErrors()->assertRedirect();
 
         $this->assertCount(1, $commands);
@@ -97,6 +98,34 @@ class SupportTicketTest extends TestCase
         $this->assertSame('bucket-owner-full-control', $commands[0]['ACL']);
         $this->assertSame('application/octet-stream', $commands[0]['ContentType']);
         $this->assertSame(SupportTicket::first()->attachments->first()->path, $commands[0]['Key']);
+    }
+
+    public function test_s3_upload_failure_logs_the_underlying_error_and_rolls_back_ticket(): void
+    {
+        Log::spy();
+        config(['filesystems.disks.s3' => array_replace(config('filesystems.disks.s3'), [
+            'key' => 'test-key', 'secret' => 'test-secret',
+            'region' => 'us-east-1', 'bucket' => 'test-ticket-bucket',
+            'endpoint' => null,
+            'handler' => function ($command) {
+                if ($command->getName() === 'PutObject') {
+                    throw new \RuntimeException('AccessDenied: ticket upload denied by S3.');
+                }
+
+                return new \GuzzleHttp\Promise\FulfilledPromise(new \Aws\Result());
+            },
+        ])]);
+        Storage::forgetDisk('s3');
+
+        $this->asAdmin()->post(route('support-tickets.store'), $this->ticketData() + [
+            'attachments' => [UploadedFile::fake()->create('error.png', 1, 'image/png')],
+        ])->assertSessionHasErrors('attachments');
+
+        $this->assertDatabaseCount('support_tickets', 0);
+        $this->assertDatabaseCount('support_ticket_attachments', 0);
+        Log::shouldHaveReceived('error')->withArgs(function ($message, $context) {
+            return str_contains($message, 'AccessDenied: ticket upload denied by S3.');
+        })->once();
     }
 
     public function test_update_can_add_attachments_without_replacing_existing_files(): void
