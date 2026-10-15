@@ -11,6 +11,48 @@ class OtherServerReportingTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_admin_can_permanently_remove_a_registered_server_and_its_history(): void
+    {
+        $server = $this->createServer('Retired server', 'retired-server', 'retired-token');
+        $retained = $this->createServer('Retained server', 'retained-server', 'retained-token');
+        $this->sendReport($server, 'retired-token', [
+            'totalUpdates' => 2,
+            'securityUpdates' => 1,
+            'rebootRequired' => false,
+        ])->assertCreated();
+        $this->assertDatabaseHas('other_server_patch_reports', ['other_server_id' => $server->id]);
+        $this->assertDatabaseHas('other_server_report_nonces', ['other_server_id' => $server->id]);
+
+        $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
+        $this->get(route('other-servers.index'))->assertOk()
+            ->assertSee(route('other-servers.destroy', $server), false)
+            ->assertSee('Remove server');
+        $this->delete(route('other-servers.destroy', $server))
+            ->assertRedirect(route('other-servers.index'))
+            ->assertSessionHas('status');
+
+        $this->assertDatabaseMissing('other_servers', ['id' => $server->id]);
+        $this->assertDatabaseMissing('other_server_patch_reports', ['other_server_id' => $server->id]);
+        $this->assertDatabaseMissing('other_server_report_nonces', ['other_server_id' => $server->id]);
+        $this->assertDatabaseHas('other_servers', ['id' => $retained->id]);
+        $this->sendReport($server, 'retired-token', [
+            'totalUpdates' => 0,
+            'securityUpdates' => 0,
+            'rebootRequired' => false,
+        ])->assertNotFound();
+    }
+
+    public function test_viewer_cannot_remove_a_registered_server(): void
+    {
+        $server = $this->createServer('Protected server', 'protected-server', 'protected-token');
+        $viewer = \App\Models\User::factory()->create(['role' => 'viewer', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $viewer->id])->actingAs($viewer);
+
+        $this->delete(route('other-servers.destroy', $server))->assertForbidden();
+        $this->assertDatabaseHas('other_servers', ['id' => $server->id]);
+    }
+
     public function test_legacy_reports_do_not_clear_saved_update_details(): void
     {
         $token = 'server-monitor-token';

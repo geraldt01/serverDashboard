@@ -59,6 +59,7 @@ Route::middleware(['auth', EnsureTwoFactorAuthenticated::class])->group(function
     Route::post('/wordpress-sites/{wordpressSite}/whitelist', [WordpressSiteController::class, 'updateWhitelist'])->middleware('role:admin')->name('wordpress-sites.update-whitelist');
     Route::get('/other-servers', [OtherServerController::class, 'index'])->middleware('role:admin')->name('other-servers.index');
     Route::post('/other-servers', [OtherServerController::class, 'store'])->middleware('role:admin')->name('other-servers.store');
+    Route::delete('/other-servers/{otherServer}', [OtherServerController::class, 'destroy'])->middleware('role:admin')->name('other-servers.destroy');
     Route::post('/other-servers/{otherServer}/rotate-token', [OtherServerController::class, 'rotateToken'])->middleware('role:admin')->name('other-servers.rotate-token');
     Route::post('/other-servers/{otherServer}/toggle-active', [OtherServerController::class, 'toggleActive'])->middleware('role:admin')->name('other-servers.toggle-active');
     Route::post('/other-servers/{otherServer}/test-connection', [OtherServerController::class, 'testConnection'])->middleware(['role:admin', 'throttle:10,1'])->name('other-servers.test-connection');

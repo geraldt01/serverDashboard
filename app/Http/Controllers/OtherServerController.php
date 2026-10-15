@@ -48,6 +48,15 @@ class OtherServerController extends Controller
             ->with('otherServerCredentials', $this->credentialsFor($server, $token));
     }
 
+    public function destroy(OtherServer $otherServer)
+    {
+        $name = $otherServer->name;
+        $otherServer->delete();
+
+        return redirect()->route('other-servers.index')
+            ->with('status', "Server {$name} and its reporting history were permanently removed. The actual server was not affected; stop or uninstall its reporting agent separately.");
+    }
+
     public function rotateToken(OtherServer $otherServer)
     {
         $token = Str::random(48);

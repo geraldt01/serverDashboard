@@ -108,6 +108,11 @@
                                 <form method="POST" action="{{ route('other-servers.patch-now', $server) }}">@csrf<button type="submit" @if(! $server->aws_instance_id) disabled title="Set an AWS instance ID to enable manual patch checks" @endif>Patch now</button></form>
                                 <form method="POST" action="{{ route('other-servers.rotate-token', $server) }}">@csrf<button type="submit">Rotate token</button></form>
                                 <form method="POST" action="{{ route('other-servers.toggle-active', $server) }}">@csrf<button type="submit" class="{{ $server->is_active ? 'btn-danger' : 'secondary' }}">{{ $server->is_active ? 'Disable' : 'Enable' }}</button></form>
+                                <form method="POST" action="{{ route('other-servers.destroy', $server) }}" data-delete-server="{{ $server->name }}" onsubmit="return confirm('Permanently remove ' + this.dataset.deleteServer + ' and all its reporting history? This cannot be undone. The actual server will not be affected.');">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn-danger" title="Permanently remove this registered server">Remove server</button>
+                                </form>
                             </div>
                             <details style="margin-top:8px;">
                                 <summary class="muted" style="cursor:pointer;">Edit name / hostname / instance ID</summary>
