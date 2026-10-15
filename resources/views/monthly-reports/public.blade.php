@@ -133,22 +133,22 @@
             <p class="muted">No outdated WordPress plugin or core reports were recorded for this month.</p>
         @endif
         <h3 style="margin-top:22px">Recent WordPress update history · last 30 days</h3>
-        <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Date</th><th>Site</th><th>Type</th><th>Component</th><th>Version</th><th>Result</th></tr></thead><tbody>
+        <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Update observed at</th><th>Site</th><th>Type</th><th>Component</th><th>Versions (before → after)</th><th>Update details</th></tr></thead><tbody>
             @forelse ($report['wordpress_update_history'] as $event)
                 <tr>
-                    <td>{{ $event['at']?->format('j M Y, H:i') ?? 'Unknown' }}</td>
+                    <td>{{ $event['at']?->format('j M Y, H:i:s T') ?? 'Unknown' }}</td>
                     <td>{{ $event['site'] }}</td>
                     <td><span class="report-tag">{{ $event['type'] }}</span></td>
                     <td>{{ $event['component'] }}</td>
                     <td>{{ $event['current'] ?: 'Unknown' }}{{ $event['latest'] ? ' → '.$event['latest'] : '' }}</td>
-                    <td>{{ str_replace('_', ' ', ucfirst($event['status'])) }}</td>
+                    <td>{{ $event['details'] }}</td>
                 </tr>
             @empty
-                <tr><td colspan="6">No WordPress update reports have been recorded in the last 30 days.</td></tr>
+                <tr><td colspan="6">No installed WordPress version upgrades have been observed in the last 30 days.</td></tr>
             @endforelse
         </tbody></table></div>
         <div class="report-pagination" data-pagination-controls aria-label="WordPress update history pagination"><button type="button" data-page-previous aria-label="Previous WordPress update history page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next WordPress update history page">Next</button></div>
-        <p class="report-note" style="margin-top:10px">This is reporter check history, not proof that an update was installed.</p>
+        <p class="report-note" style="margin-top:10px">Only increases in installed plugin or core versions are shown, not available updates or current-status checks. The timestamp is when the newer installed version was first reported; the update occurred between checks. Exact installation-completion times are not currently reported.</p>
     </section>
 
     <section class="panel report-section">

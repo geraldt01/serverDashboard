@@ -214,7 +214,7 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Production change ticket');
     }
 
-    public function test_recent_wordpress_plugin_and_core_reports_appear_in_patch_history(): void
+    public function test_recent_wordpress_history_shows_only_installed_version_upgrades(): void
     {
         $settings = MonthlyReportSetting::current();
         $site = WordpressSite::forceCreate([
@@ -231,7 +231,7 @@ class MonthlyReportTest extends TestCase
             'current_version' => '1.2.0',
             'latest_version' => '1.3.0',
             'status' => 'outdated',
-            'checked_at' => now(),
+            'checked_at' => now()->subDays(31),
         ]);
         WordpressCoreUpdate::create([
             'wordpress_site_id' => $site->id,
@@ -239,12 +239,52 @@ class MonthlyReportTest extends TestCase
             'current_version' => '6.7.1',
             'latest_version' => '6.7.2',
             'status' => 'outdated',
-            'checked_at' => now(),
+            'checked_at' => now()->subDays(31),
         ]);
+
+        $observedAt = now()->subDay()->startOfMinute();
+        $plugin = [
+            'wordpress_site_id' => $site->id,
+            'site_name' => 'Old display name',
+            'plugin_name' => 'Cache Optimizer',
+            'current_version' => '1.3.0',
+            'latest_version' => '1.4.0',
+            'status' => 'outdated',
+        ];
+        WordpressPluginUpdate::create($plugin + ['checked_at' => $observedAt]);
+        WordpressPluginUpdate::create($plugin + ['checked_at' => now()]);
+        WordpressCoreUpdate::create([
+            'wordpress_site_id' => $site->id,
+            'site_name' => $site->name,
+            'current_version' => '6.7.2',
+            'latest_version' => '6.7.2',
+            'status' => 'up_to_date',
+            'checked_at' => $observedAt,
+        ]);
+        WordpressPluginUpdate::create(array_replace($plugin, [
+            'plugin_name' => 'Never upgraded plugin',
+            'checked_at' => now(),
+        ]));
+        WordpressPluginUpdate::create(array_replace($plugin, [
+            'current_version' => '1.2.0',
+            'checked_at' => now()->addSecond(),
+        ]));
+
+        $history = app(MonthlyItSecurityReport::class)->build()['wordpress_update_history'];
+        $this->assertCount(2, $history);
+        foreach ($history as $event) {
+            $this->assertTrue($event['at']->equalTo($observedAt));
+            $this->assertSame($site->name, $event['site']);
+        }
+        $this->assertSame('1.2.0', $history[0]['current']);
+        $this->assertSame('1.3.0', $history[0]['latest']);
 
         $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
             ->assertOk()
             ->assertSee('Recent WordPress update history · last 30 days')
+            ->assertSee('Update observed at')
+            ->assertSee($observedAt->format('j M Y, H:i:s T'))
+            ->assertSee('Installed version increased from 1.2.0 to 1.3.0.')
             ->assertSee('Cache Optimizer')
             ->assertSee('1.2.0 → 1.3.0')
             ->assertSee('WordPress core')
@@ -284,6 +324,15 @@ class MonthlyReportTest extends TestCase
                 'failed_count' => 0,
                 'reboot_required' => false,
                 'checked_at' => now()->subMinutes($number),
+            ]);
+            WordpressPluginUpdate::create([
+                'wordpress_site_id' => $site->id,
+                'site_name' => $site->name,
+                'plugin_name' => 'History Plugin '.$number,
+                'current_version' => '0.9.0',
+                'latest_version' => '1.0.'.$number,
+                'status' => 'outdated',
+                'checked_at' => now()->subDays(31),
             ]);
             WordpressPluginUpdate::create([
                 'wordpress_site_id' => $site->id,

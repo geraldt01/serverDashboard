@@ -191,42 +191,44 @@ class MonthlyItSecurityReport
     private function wordpressUpdateHistory(): array
     {
         $since = CarbonImmutable::now()->subDays(30);
-        $pluginRows = WordpressPluginUpdate::query()
-            ->with('wordpressSite:id,name')
-            ->where('checked_at', '>=', $since)
-            ->orderByDesc('checked_at')
-            ->limit(100)
-            ->get();
-        $coreRows = WordpressCoreUpdate::query()
-            ->with('wordpressSite:id,name')
-            ->where('checked_at', '>=', $since)
-            ->orderByDesc('checked_at')
-            ->limit(100)
-            ->get();
         $history = [];
 
-        foreach ($pluginRows as $row) {
-            $history[] = [
-                'at' => $row->checked_at,
-                'site' => $row->wordpressSite?->name ?? $row->site_name,
-                'component' => $row->plugin_name,
-                'type' => 'Plugin',
-                'current' => $row->current_version,
-                'latest' => $row->latest_version,
-                'status' => $row->status,
-            ];
-        }
+        foreach (['Plugin' => WordpressPluginUpdate::class, 'Core' => WordpressCoreUpdate::class] as $type => $model) {
+            $recentRows = $model::query()->with('wordpressSite:id,name')
+                ->where('checked_at', '>=', $since)->orderBy('checked_at')->orderBy('id')->get();
+            $groups = $recentRows->groupBy(fn ($row) => json_encode([
+                $row->wordpress_site_id ?? $row->site_name,
+                $type === 'Plugin' ? $row->plugin_name : 'WordPress core',
+            ]));
 
-        foreach ($coreRows as $row) {
-            $history[] = [
-                'at' => $row->checked_at,
-                'site' => $row->wordpressSite?->name ?? $row->site_name,
-                'component' => 'WordPress core',
-                'type' => 'Core',
-                'current' => $row->current_version,
-                'latest' => $row->latest_version,
-                'status' => $row->status,
-            ];
+            foreach ($groups as $rows) {
+                $first = $rows->first();
+                $baseline = $model::query()->where('wordpress_site_id', $first->wordpress_site_id);
+                if ($first->wordpress_site_id === null) {
+                    $baseline->where('site_name', $first->site_name);
+                }
+                if ($type === 'Plugin') {
+                    $baseline->where('plugin_name', $first->plugin_name);
+                }
+                $previous = $baseline->where('checked_at', '<', $since)
+                    ->orderByDesc('checked_at')->orderByDesc('id')->first();
+
+                foreach ($rows as $row) {
+                    if ($previous && $previous->current_version && $row->current_version
+                        && version_compare($row->current_version, $previous->current_version, '>')) {
+                        $history[] = [
+                            'at' => $row->checked_at,
+                            'site' => $row->wordpressSite?->name ?? $row->site_name,
+                            'component' => $type === 'Plugin' ? $row->plugin_name : 'WordPress core',
+                            'type' => $type,
+                            'current' => $previous->current_version,
+                            'latest' => $row->current_version,
+                            'details' => 'Installed version increased from '.$previous->current_version.' to '.$row->current_version.'.',
+                        ];
+                    }
+                    $previous = $row;
+                }
+            }
         }
 
         usort($history, fn ($left, $right) => $right['at']->getTimestamp() <=> $left['at']->getTimestamp());
