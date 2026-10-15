@@ -83,20 +83,20 @@
             @endforeach
         </tbody></table></div>
         <h3 style="margin-top:22px">Recent patch history · last 30 days</h3>
-        <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Date</th><th>Server</th><th>Source</th><th>Observed activity and update details</th></tr></thead><tbody>
+        <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Fix observed at</th><th>Server</th><th>Source</th><th>Resolved patches and update details</th></tr></thead><tbody>
             @forelse ($report['patch_history'] as $event)
                 <tr>
-                    <td>{{ $event['at']->format('j M Y, H:i') }}</td>
+                    <td>{{ $event['at']->format('j M Y, H:i:s T') }}</td>
                     <td>{{ $event['server'] }}@if ($event['region'])<br><small>{{ $event['region'] }}</small>@endif</td>
                     <td><span class="report-tag">{{ $event['source'] }}</span></td>
-                    <td>{{ $event['summary'] }}@if ($event['details'])<br><small>{{ \Illuminate\Support\Str::limit($event['details'], 1000) }}</small>@endif</td>
+                    <td>{{ $event['summary'] }}@if ($event['details'])<br><small style="white-space:pre-line">{{ $event['details'] }}</small>@endif</td>
                 </tr>
             @empty
-                <tr><td colspan="4">No patch history has been recorded yet. History begins as scheduled SSM checks and server-agent reports arrive.</td></tr>
+                <tr><td colspan="4">No patch fixes have been observed in the last 30 days.</td></tr>
             @endforelse
         </tbody></table></div>
         <div class="report-pagination" data-pagination-controls aria-label="Server patch history pagination"><button type="button" data-page-previous aria-label="Previous server patch history page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next server patch history page">Next</button></div>
-        <p class="report-note" style="margin-top:10px">SSM rows are compliance snapshots, not a record of a specific install command; installed counts are cumulative. Agent rows preserve reported pending package details. This log starts after the history migration is deployed and cannot reconstruct older reports.</p>
+        <p class="report-note" style="margin-top:10px">Times show when a report first observed fewer pending patches, not when updates became available. These are inferred fixes, not verified installation timestamps: the change occurred between checks. Package details are shown when a previously reported pending list has fully cleared; partial reductions cannot identify individual installed packages. Initial, unchanged and increased pending counts are excluded.</p>
     </section>
 
     <section class="panel report-section">

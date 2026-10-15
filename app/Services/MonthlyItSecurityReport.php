@@ -125,33 +125,62 @@ class MonthlyItSecurityReport
     private function patchHistory(): array
     {
         $since = CarbonImmutable::now()->subDays(30);
-        $ec2Rows = Ec2PatchStatus::query()->where('checked_at', '>=', $since)->orderByDesc('checked_at')->limit(100)->get();
-        $agentRows = OtherServerPatchReport::query()->with('server')->where('reported_at', '>=', $since)->orderByDesc('reported_at')->limit(100)->get();
+        $ec2Rows = Ec2PatchStatus::query()->where('checked_at', '>=', $since)->orderBy('checked_at')->orderBy('id')->get();
+        $agentRows = OtherServerPatchReport::query()->with('server')->where('reported_at', '>=', $since)->orderBy('reported_at')->orderBy('id')->get();
         $history = [];
 
-        foreach ($ec2Rows as $row) {
-            $history[] = [
-                'at' => $row->checked_at,
-                'server' => $row->instance_name,
-                'region' => $row->aws_region,
-                'source' => 'AWS SSM',
-                'summary' => "Compliance snapshot: {$row->missing_count} missing, {$row->security_count} security-related, {$row->installed_count} installed total, {$row->failed_count} failed.",
-                'details' => null,
-                'type' => 'snapshot',
-            ];
+        foreach ($ec2Rows->groupBy(fn ($row) => json_encode([$row->aws_region, $row->instance_id])) as $rows) {
+            $first = $rows->first();
+            $previous = Ec2PatchStatus::query()
+                ->where('aws_region', $first->aws_region)->where('instance_id', $first->instance_id)
+                ->where('checked_at', '<', $since)->orderByDesc('checked_at')->orderByDesc('id')->first();
+
+            foreach ($rows as $row) {
+                $cleared = $previous ? max(0, $previous->missing_count - $row->missing_count) : 0;
+                $securityCleared = $previous ? max(0, $previous->security_count - $row->security_count) : 0;
+                if ($cleared > 0 || $securityCleared > 0) {
+                    $history[] = [
+                        'at' => $row->checked_at,
+                        'server' => $row->instance_name,
+                        'region' => $row->aws_region,
+                        'source' => 'AWS SSM',
+                        'summary' => "Fix observed: {$cleared} fewer pending patches; {$securityCleared} fewer pending security patches. {$row->missing_count} patches remain pending.",
+                        'details' => 'Individual installed package details were not reported by SSM.',
+                        'type' => 'resolution',
+                    ];
+                }
+                $previous = $row;
+            }
         }
 
-        foreach ($agentRows as $row) {
-            $details = $row->security_update_details ?: $row->update_details;
-            $history[] = [
-                'at' => $row->reported_at,
-                'server' => $row->server?->name ?? 'Removed server',
-                'region' => null,
-                'source' => 'Server agent',
-                'summary' => "{$row->total_updates} updates pending; {$row->security_updates} security updates pending; reboot required: ".($row->reboot_required ? 'yes' : 'no').'.',
-                'details' => $details,
-                'type' => 'agent',
-            ];
+        foreach ($agentRows->groupBy('other_server_id') as $rows) {
+            $previous = OtherServerPatchReport::query()
+                ->where('other_server_id', $rows->first()->other_server_id)
+                ->where('reported_at', '<', $since)->orderByDesc('reported_at')->orderByDesc('id')->first();
+
+            foreach ($rows as $row) {
+                $cleared = $previous ? max(0, $previous->total_updates - $row->total_updates) : 0;
+                $securityCleared = $previous ? max(0, $previous->security_updates - $row->security_updates) : 0;
+                if ($cleared > 0 || $securityCleared > 0) {
+                    $details = [];
+                    if ($row->total_updates === 0 && $previous->update_details) {
+                        $details[] = 'Previously pending updates, now cleared:'."\n".$previous->update_details;
+                    }
+                    if ($row->security_updates === 0 && $securityCleared > 0 && $previous->security_update_details) {
+                        $details[] = 'Previously pending security updates, now cleared:'."\n".$previous->security_update_details;
+                    }
+                    $history[] = [
+                        'at' => $row->reported_at,
+                        'server' => $row->server?->name ?? 'Removed server',
+                        'region' => null,
+                        'source' => 'Server agent',
+                        'summary' => "Fix observed: {$cleared} fewer pending updates; {$securityCleared} fewer pending security updates. {$row->total_updates} updates remain pending; reboot required: ".($row->reboot_required ? 'yes' : 'no').'.',
+                        'details' => implode("\n", $details) ?: 'Individual resolved packages cannot be identified from the available reports.',
+                        'type' => 'resolution',
+                    ];
+                }
+                $previous = $row;
+            }
         }
 
         usort($history, fn ($left, $right) => $right['at']->getTimestamp() <=> $left['at']->getTimestamp());

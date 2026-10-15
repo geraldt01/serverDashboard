@@ -24,6 +24,89 @@ class MonthlyReportTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_patch_history_only_shows_observed_fixes_at_the_resolution_report_time(): void
+    {
+        $server = \App\Models\OtherServer::forceCreate([
+            'name' => 'Patch history server',
+            'slug' => 'patch-history-server',
+            'monitor_token' => hash('sha256', 'patch-history-token'),
+            'is_active' => true,
+        ]);
+        $baseline = [
+            'other_server_id' => $server->id,
+            'total_updates' => 2,
+            'security_updates' => 1,
+            'reboot_required' => false,
+            'update_details' => 'openssl upgrade',
+            'security_update_details' => 'openssl security upgrade',
+        ];
+        \App\Models\OtherServerPatchReport::create($baseline + ['reported_at' => now()->subDays(31)]);
+        $resolvedAt = now()->subDays(2)->startOfMinute();
+        \App\Models\OtherServerPatchReport::create(array_replace($baseline, [
+            'total_updates' => 0,
+            'security_updates' => 0,
+            'update_details' => null,
+            'security_update_details' => null,
+            'reported_at' => $resolvedAt,
+        ]));
+        \App\Models\OtherServerPatchReport::create(array_replace($baseline, [
+            'update_details' => 'newly available package',
+            'reported_at' => now()->subDay(),
+        ]));
+        \App\Models\OtherServerPatchReport::create($baseline + ['reported_at' => now()]);
+
+        $history = app(MonthlyItSecurityReport::class)->build()['patch_history'];
+
+        $this->assertCount(1, $history);
+        $this->assertTrue($history[0]['at']->equalTo($resolvedAt));
+        $this->assertStringContainsString('2 fewer pending updates', $history[0]['summary']);
+        $this->assertStringContainsString('openssl upgrade', $history[0]['details']);
+        $this->assertStringNotContainsString('newly available package', $history[0]['details']);
+
+        $settings = MonthlyReportSetting::current();
+        $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
+            ->assertOk()
+            ->assertSee('Fix observed at')
+            ->assertSee($resolvedAt->format('j M Y, H:i:s T'))
+            ->assertSee('openssl upgrade')
+            ->assertDontSee('newly available package');
+    }
+
+    public function test_ec2_patch_history_compares_each_instance_and_region_without_truncating_baselines(): void
+    {
+        $baseline = [
+            'instance_id' => 'i-history',
+            'aws_region' => 'ap-southeast-2',
+            'instance_name' => 'EC2 history server',
+            'missing_count' => 5,
+            'security_count' => 2,
+            'installed_count' => 100,
+            'failed_count' => 0,
+            'reboot_required' => false,
+        ];
+        Ec2PatchStatus::create($baseline + ['checked_at' => now()->subDays(31)]);
+        $resolvedAt = now()->subDays(29)->startOfMinute();
+        $resolved = array_replace($baseline, ['missing_count' => 3, 'security_count' => 1, 'installed_count' => 102]);
+        Ec2PatchStatus::create($resolved + ['checked_at' => $resolvedAt]);
+        foreach (range(1, 105) as $number) {
+            Ec2PatchStatus::create($resolved + ['checked_at' => now()->subMinutes(110 - $number)]);
+        }
+        Ec2PatchStatus::create(array_replace($baseline, [
+            'aws_region' => 'us-east-1',
+            'missing_count' => 0,
+            'security_count' => 0,
+            'checked_at' => now(),
+        ]));
+
+        $history = app(MonthlyItSecurityReport::class)->build()['patch_history'];
+
+        $this->assertCount(1, $history);
+        $this->assertTrue($history[0]['at']->equalTo($resolvedAt));
+        $this->assertSame('ap-southeast-2', $history[0]['region']);
+        $this->assertStringContainsString('2 fewer pending patches', $history[0]['summary']);
+        $this->assertStringContainsString('1 fewer pending security patches', $history[0]['summary']);
+    }
+
     public function test_public_report_requires_the_random_public_token(): void
     {
         $settings = MonthlyReportSetting::current();
@@ -176,6 +259,17 @@ class MonthlyReportTest extends TestCase
         ]);
 
         foreach (range(1, 6) as $number) {
+            Ec2PatchStatus::create([
+                'instance_id' => sprintf('i-%08x', $number),
+                'aws_region' => 'ap-southeast-2',
+                'instance_name' => 'History Server '.$number,
+                'missing_count' => 1,
+                'security_count' => 0,
+                'installed_count' => $number - 1,
+                'failed_count' => 0,
+                'reboot_required' => false,
+                'checked_at' => now()->subDays(31),
+            ]);
             Ec2PatchStatus::create([
                 'instance_id' => sprintf('i-%08x', $number),
                 'aws_region' => 'ap-southeast-2',
