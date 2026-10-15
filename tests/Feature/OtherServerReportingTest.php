@@ -26,8 +26,9 @@ class OtherServerReportingTest extends TestCase
         $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
         $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
         $this->get(route('other-servers.index'))->assertOk()
-            ->assertSee(route('other-servers.destroy', $server), false)
-            ->assertSee('Remove server');
+            ->assertDontSee('Remove server')
+            ->assertDontSee('data-delete-server', false)
+            ->assertDontSee('>Disable</button>', false);
         $this->delete(route('other-servers.destroy', $server))
             ->assertRedirect(route('other-servers.index'))
             ->assertSessionHas('status');
