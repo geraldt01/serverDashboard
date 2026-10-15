@@ -67,6 +67,10 @@ class MonthlyReportTest extends TestCase
         $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
             ->assertOk()
             ->assertSee('Fix observed at')
+            ->assertSee('View more')
+            ->assertSee('data-open-patch-details="patch-details-0"', false)
+            ->assertSee('<dialog id="patch-details-0"', false)
+            ->assertSee('data-close-patch-details', false)
             ->assertSee($resolvedAt->format('j M Y, H:i:s T'))
             ->assertSee('openssl upgrade')
             ->assertDontSee('newly available package');

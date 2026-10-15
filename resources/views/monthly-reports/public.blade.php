@@ -28,6 +28,13 @@
     .report-pagination { display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:10px; color:#736c88; font-size:12px; }
     .report-pagination button { padding:6px 10px; font-size:12px; }
     .report-pagination button:disabled { opacity:.45; cursor:not-allowed; }
+    .patch-details-preview { max-width:480px; overflow-wrap:anywhere; }
+    .patch-details-more { margin-top:6px; padding:5px 9px; font-size:12px; }
+    .patch-details-dialog { width:min(680px,calc(100vw - 32px)); max-height:85vh; box-sizing:border-box; padding:20px; border:0; border-radius:8px; overflow:auto; }
+    .patch-details-dialog::backdrop { background:rgba(15,23,42,.45); }
+    .patch-details-dialog h3 { margin:0 0 8px; font-size:18px; overflow-wrap:anywhere; }
+    .patch-details-dialog .patch-details-text { white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; line-height:1.6; }
+    .patch-details-actions { display:flex; justify-content:flex-end; margin-top:16px; }
     .report-tag { display:inline-block; padding:4px 8px; border-radius:4px; color:#86144e; background:#f8e7f0; font-size:11px; font-weight:700; white-space:nowrap; }
     .report-note { padding:10px 12px; color:#62546b; background:#faf7fb; border-left:3px solid #c81e78; font-size:12px; }
     .report-list { margin:0; padding-left:19px; }
@@ -89,13 +96,26 @@
                     <td>{{ $event['at']->format('j M Y, H:i:s T') }}</td>
                     <td>{{ $event['server'] }}@if ($event['region'])<br><small>{{ $event['region'] }}</small>@endif</td>
                     <td><span class="report-tag">{{ $event['source'] }}</span></td>
-                    <td>{{ $event['summary'] }}@if ($event['details'])<br><small style="white-space:pre-line">{{ $event['details'] }}</small>@endif</td>
+                    <td>
+                        <div class="patch-details-preview">{{ \Illuminate\Support\Str::limit($event['summary'], 110) }}</div>
+                        @if ($event['details'])<small class="patch-details-preview" style="display:block">{{ \Illuminate\Support\Str::limit($event['details'], 100) }}</small>@endif
+                        <button type="button" class="patch-details-more" data-open-patch-details="patch-details-{{ $loop->index }}" aria-haspopup="dialog" aria-controls="patch-details-{{ $loop->index }}">View more</button>
+                    </td>
                 </tr>
             @empty
                 <tr><td colspan="4">No patch fixes have been observed in the last 30 days.</td></tr>
             @endforelse
         </tbody></table></div>
         <div class="report-pagination" data-pagination-controls aria-label="Server patch history pagination"><button type="button" data-page-previous aria-label="Previous server patch history page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next server patch history page">Next</button></div>
+        @foreach ($report['patch_history'] as $event)
+            <dialog id="patch-details-{{ $loop->index }}" class="patch-details-dialog" aria-labelledby="patch-details-title-{{ $loop->index }}">
+                <h3 id="patch-details-title-{{ $loop->index }}">{{ $event['server'] }}</h3>
+                <p class="muted">{{ $event['at']->format('j M Y, H:i:s T') }} &middot; {{ $event['source'] }}{{ $event['region'] ? ' · '.$event['region'] : '' }}</p>
+                <p class="patch-details-text">{{ $event['summary'] }}</p>
+                @if ($event['details'])<div class="patch-details-text">{{ $event['details'] }}</div>@endif
+                <div class="patch-details-actions"><button type="button" data-close-patch-details autofocus>Close</button></div>
+            </dialog>
+        @endforeach
         <p class="report-note" style="margin-top:10px">Times show when a report first observed fewer pending patches, not when updates became available. These are inferred fixes, not verified installation timestamps: the change occurred between checks. Package details are shown when a previously reported pending list has fully cleared; partial reductions cannot identify individual installed packages. Initial, unchanged and increased pending counts are excluded.</p>
     </section>
 
@@ -249,6 +269,14 @@
     <p class="report-footnote">Data is based on reports and checks received by this dashboard. Missing integration data is shown as unavailable, not assumed healthy. The 99.9% target, backup policies and update-fix estimates should be reviewed against provider records.</p>
 </div>
 <script>
+    document.querySelectorAll('[data-open-patch-details]').forEach((button) => {
+        button.addEventListener('click', () => {
+            document.getElementById(button.dataset.openPatchDetails)?.showModal();
+        });
+    });
+    document.querySelectorAll('[data-close-patch-details]').forEach((button) => {
+        button.addEventListener('click', () => button.closest('dialog')?.close());
+    });
     document.querySelectorAll('[data-report-pagination]').forEach((tableWrap) => {
         const rows = Array.from(tableWrap.querySelectorAll('tbody tr'));
         const controls = tableWrap.parentElement.querySelector('[data-pagination-controls]');
