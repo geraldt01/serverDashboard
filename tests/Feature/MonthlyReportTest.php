@@ -172,7 +172,7 @@ class MonthlyReportTest extends TestCase
         $costReport->shouldReceive('build')->once()->andReturn([
             'available' => true,
             'labels' => ['Apr 2026', 'May 2026'],
-            'regions' => [['name' => 'ap-southeast-2', 'data' => [120.5, 98.25], 'color' => '#5279df']],
+            'services' => [['name' => 'EC2 - Compute', 'data' => [120.5, 98.25], 'color' => '#5279df']],
             'total' => 218.75,
             'unit' => 'USD',
             'range_label' => 'Last 6 months + current month to date',
@@ -185,7 +185,8 @@ class MonthlyReportTest extends TestCase
             ->assertOk()
             ->assertSee('aws-cost-chart')
             ->assertSee('Total cost: 218.75 USD')
-            ->assertSee('ap-southeast-2')
+            ->assertSee('Grouped by AWS service')
+            ->assertSee('EC2 - Compute')
             ->assertSee('Refresh costs')
             ->assertSee('not real-time');
     }

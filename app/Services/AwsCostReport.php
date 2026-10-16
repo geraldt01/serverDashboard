@@ -32,7 +32,7 @@ class AwsCostReport
                 'TimePeriod' => ['Start' => $start->toDateString(), 'End' => $end->toDateString()],
                 'Granularity' => 'MONTHLY',
                 'Metrics' => ['UnblendedCost'],
-                'GroupBy' => [['Type' => 'DIMENSION', 'Key' => 'REGION']],
+                'GroupBy' => [['Type' => 'DIMENSION', 'Key' => 'SERVICE']],
             ]);
 
             return $this->formatResults($result['ResultsByTime'] ?? [], $start, $end, $today);
@@ -48,7 +48,7 @@ class AwsCostReport
         return [
             'available' => false,
             'labels' => [],
-            'regions' => [],
+            'services' => [],
             'total' => null,
             'unit' => null,
             'range_label' => 'Last 6 months',
@@ -64,36 +64,36 @@ class AwsCostReport
             $labels[] = $month->format('M Y');
         }
 
-        $regionValues = [];
+        $serviceValues = [];
         $unit = 'USD';
         foreach ($periods as $period) {
             $month = CarbonImmutable::parse($period['TimePeriod']['Start'])->format('M Y');
             foreach ($period['Groups'] ?? [] as $group) {
-                $region = $group['Keys'][0] ?? 'Other / no region';
+                $service = $group['Keys'][0] ?? 'Other / no service';
                 $amount = (float) ($group['Metrics']['UnblendedCost']['Amount'] ?? 0);
                 $unit = $group['Metrics']['UnblendedCost']['Unit'] ?? $unit;
-                $regionValues[$region][$month] = ($regionValues[$region][$month] ?? 0) + $amount;
+                $serviceValues[$service][$month] = ($serviceValues[$service][$month] ?? 0) + $amount;
             }
         }
 
         $palette = ['#5279df', '#c81e78', '#e2173d', '#168a72', '#a16bcc', '#b06a00', '#357b91', '#5f6c7b'];
-        $regions = [];
+        $services = [];
         $total = 0.0;
-        foreach ($regionValues as $region => $values) {
+        foreach ($serviceValues as $service => $values) {
             $data = array_map(fn ($label) => round($values[$label] ?? 0, 2), $labels);
             $total += array_sum($data);
-            $regions[] = [
-                'name' => $region === '' ? 'Other / no region' : $region,
+            $services[] = [
+                'name' => $service === '' ? 'Other / no service' : $service,
                 'data' => $data,
-                'color' => $palette[count($regions) % count($palette)],
+                'color' => $palette[count($services) % count($palette)],
             ];
         }
-        usort($regions, fn ($left, $right) => array_sum($right['data']) <=> array_sum($left['data']));
+        usort($services, fn ($left, $right) => array_sum($right['data']) <=> array_sum($left['data']));
 
         return [
             'available' => true,
             'labels' => $labels,
-            'regions' => $regions,
+            'services' => $services,
             'total' => round($total, 2),
             'unit' => $unit,
             'range_label' => 'Last 6 months + current month to date',

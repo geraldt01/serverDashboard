@@ -162,30 +162,30 @@
 
     <section class="panel report-section" id="aws-costs">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
-            <div><h2 style="margin-bottom:4px">AWS cost breakdown</h2><p class="muted">{{ $report['costs']['range_label'] ?? 'Last 6 months' }} · Grouped by AWS region</p></div>
+            <div><h2 style="margin-bottom:4px">AWS cost breakdown</h2><p class="muted">{{ $report['costs']['range_label'] ?? 'Last 6 months' }} · Grouped by AWS service</p></div>
             <button type="button" class="secondary" onclick="window.location.reload()" aria-label="Refresh AWS cost report">Refresh costs</button>
         </div>
         @if ($report['costs']['available'])
             <p style="margin:14px 0 4px"><strong>Total cost: {{ number_format($report['costs']['total'], 2) }} {{ $report['costs']['unit'] }}</strong></p>
-            <div style="height:300px;position:relative"><canvas id="aws-cost-chart" role="img" aria-label="Stacked monthly AWS cost chart by region"></canvas></div>
-            <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>Region</th><th>Total for period</th></tr></thead><tbody>
-                @foreach ($report['costs']['regions'] as $region)<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ $region['color'] }};margin-right:7px"></span>{{ $region['name'] }}</td><td>{{ number_format(array_sum($region['data']), 2) }} {{ $report['costs']['unit'] }}</td></tr>@endforeach
+            <div style="height:300px;position:relative"><canvas id="aws-cost-chart" role="img" aria-label="Stacked monthly AWS cost chart by service"></canvas></div>
+            <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>AWS service</th><th>Total for period</th></tr></thead><tbody>
+                @foreach ($report['costs']['services'] as $service)<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ $service['color'] }};margin-right:7px"></span>{{ $service['name'] }}</td><td>{{ number_format(array_sum($service['data']), 2) }} {{ $report['costs']['unit'] }}</td></tr>@endforeach
             </tbody></table></div>
             <script>
                 (() => {
                     const canvas = document.getElementById('aws-cost-chart');
                     if (!canvas || !window.Chart) return;
                     const labels = @json($report['costs']['labels']);
-                    const regions = @json($report['costs']['regions']);
+                    const services = @json($report['costs']['services']);
                     new Chart(canvas, {
                         type: 'bar',
                         data: {
                             labels,
-                            datasets: regions.map(region => ({
-                                label: region.name,
-                                data: region.data,
-                                backgroundColor: region.color,
-                                borderColor: region.color,
+                            datasets: services.map(service => ({
+                                label: service.name,
+                                data: service.data,
+                                backgroundColor: service.color,
+                                borderColor: service.color,
                                 borderWidth: 1,
                                 borderRadius: 2,
                                 maxBarThickness: 54,
