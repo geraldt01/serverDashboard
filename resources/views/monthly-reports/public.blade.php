@@ -168,9 +168,10 @@
         @if ($report['costs']['available'])
             <p style="margin:14px 0 4px"><strong>Total cost: {{ number_format($report['costs']['total'], 2) }} {{ $report['costs']['unit'] }}</strong></p>
             <div style="height:300px;position:relative"><canvas id="aws-cost-chart" role="img" aria-label="Stacked monthly AWS cost chart by service"></canvas></div>
-            <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>AWS service</th><th>Total for period</th></tr></thead><tbody>
+            <div class="scroll report-table" data-report-pagination data-page-size="5" style="margin-top:12px"><table><thead><tr><th>AWS service</th><th>Total for period</th></tr></thead><tbody>
                 @foreach ($report['costs']['services'] as $service)<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ $service['color'] }};margin-right:7px"></span>{{ $service['name'] }}</td><td>{{ number_format(array_sum($service['data']), 2) }} {{ $report['costs']['unit'] }}</td></tr>@endforeach
             </tbody></table></div>
+            <div class="report-pagination" data-pagination-controls aria-label="AWS service cost table pagination"><button type="button" data-page-previous aria-label="Previous AWS service cost page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next AWS service cost page">Next</button></div>
             <script>
                 (() => {
                     const canvas = document.getElementById('aws-cost-chart');
@@ -196,7 +197,7 @@
                             maintainAspectRatio: false,
                             interaction: { mode: 'index', intersect: false },
                             plugins: {
-                                legend: { position: 'bottom', labels: { usePointStyle: true, pointStyle: 'rect', boxWidth: 10, padding: 18 } },
+                                legend: { position: 'bottom', labels: { usePointStyle: true, pointStyle: 'rect', boxWidth: 10, padding: 18, filter: legendItem => legendItem.index < 5 } },
                                 tooltip: { callbacks: { label: context => `${context.dataset.label}: ${Number(context.raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {{ $report['costs']['unit'] }}` } },
                             },
                             scales: {

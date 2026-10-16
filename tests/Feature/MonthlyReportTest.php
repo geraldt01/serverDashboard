@@ -165,14 +165,18 @@ class MonthlyReportTest extends TestCase
         $this->assertSame('2026-10-01', $period['end']->toDateString());
     }
 
-    public function test_public_report_renders_the_regional_cost_chart_when_cost_data_is_available(): void
+    public function test_public_report_paginates_service_costs_and_limits_the_chart_legend_to_five(): void
     {
         $settings = MonthlyReportSetting::current();
         $costReport = \Mockery::mock(AwsCostReport::class);
         $costReport->shouldReceive('build')->once()->andReturn([
             'available' => true,
             'labels' => ['Apr 2026', 'May 2026'],
-            'services' => [['name' => 'EC2 - Compute', 'data' => [120.5, 98.25], 'color' => '#5279df']],
+            'services' => collect(range(1, 7))->map(fn ($number) => [
+                'name' => $number === 1 ? 'EC2 - Compute' : 'Service '.$number,
+                'data' => [120.5 / $number, 98.25 / $number],
+                'color' => '#5279df',
+            ])->all(),
             'total' => 218.75,
             'unit' => 'USD',
             'range_label' => 'Last 6 months + current month to date',
@@ -187,6 +191,9 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Total cost: 218.75 USD')
             ->assertSee('Grouped by AWS service')
             ->assertSee('EC2 - Compute')
+            ->assertSee('data-page-size="5"', false)
+            ->assertSee('AWS service cost table pagination')
+            ->assertSee('legendItem.index < 5', false)
             ->assertSee('Refresh costs')
             ->assertSee('not real-time');
     }
