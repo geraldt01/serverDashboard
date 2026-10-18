@@ -196,7 +196,32 @@ class MonthlyReportTest extends TestCase
             'partial' => false,
             'regions' => ['ap-southeast-2'],
             'failed_regions' => [],
-            'findings' => [],
+            'findings' => [
+                [
+                    'severity' => 'CRITICAL',
+                    'title' => 'Critical test finding',
+                    'vulnerability_id' => 'CVE-TEST-1',
+                    'resource' => 'i-test',
+                    'resource_type' => 'AWS_EC2_INSTANCE',
+                    'packages' => 'openssl',
+                    'fix_available' => 'YES',
+                    'fixed_versions' => '3.0.15',
+                    'exploit_available' => 'YES',
+                    'region' => 'ap-southeast-2',
+                ],
+                [
+                    'severity' => 'HIGH',
+                    'title' => 'High test finding',
+                    'vulnerability_id' => 'CVE-TEST-2',
+                    'resource' => 'i-test-2',
+                    'resource_type' => 'AWS_EC2_INSTANCE',
+                    'packages' => 'curl',
+                    'fix_available' => 'NO',
+                    'fixed_versions' => '',
+                    'exploit_available' => 'NO',
+                    'region' => 'ap-southeast-2',
+                ],
+            ],
             'counts' => array_fill_keys(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL', 'UNTRIAGED'], 0),
             'package_coverage' => [
                 'total' => 454,
@@ -218,7 +243,12 @@ class MonthlyReportTest extends TestCase
             ->assertSee('7 partial; 5 not reported by Inspector')
             ->assertSee('Findings with fix available')
             ->assertSee('408')
-            ->assertSee('3 partial; 5 not reported by Inspector');
+            ->assertSee('3 partial; 5 not reported by Inspector')
+            ->assertSee('data-inspector-severity="CRITICAL"', false)
+            ->assertSee('data-inspector-severity="HIGH"', false)
+            ->assertSee('data-severity="CRITICAL"', false)
+            ->assertSee('data-severity="HIGH"', false)
+            ->assertSee('data-inspector-filter-empty', false);
     }
 
     public function test_admin_can_change_the_manager_email_and_rotate_the_report_link(): void

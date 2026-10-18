@@ -43,6 +43,11 @@
     .inspector-coverage-value { display:block; margin-top:4px; color:#0875e1; font-size:36px; font-weight:300; line-height:1.15; }
     .inspector-coverage-total { color:#202633; font-size:12px; }
     .inspector-coverage-note { display:block; margin-top:5px; color:#736c88; font-size:11px; }
+    .report-tags { display:flex; flex-wrap:wrap; gap:7px; margin:10px 0 12px; }
+    .report-tags .report-tag { cursor:pointer; }
+    .report-tags .report-tag[aria-pressed="true"] { color:#fff; background:#0875e1; border-color:#0875e1; }
+    .report-tags .report-tag:focus-visible { outline:2px solid #0875e1; outline-offset:2px; }
+    .inspector-filter-empty { margin:8px 0; color:#736c88; }
     .report-note { padding:10px 12px; color:#62546b; background:#faf7fb; border-left:3px solid #c81e78; font-size:12px; }
     .report-list { margin:0; padding-left:19px; }
     .report-list li { margin:6px 0; }
@@ -144,15 +149,17 @@
                     <span class="inspector-coverage-note">{{ number_format($packageCoverage['fix']['PARTIAL']) }} partial; {{ number_format($packageCoverage['fix']['NOT_REPORTED']) }} not reported by Inspector</span>
                 </div>
             </div>
-            <p>{{ number_format($report['inspector']['total']) }} active package and code vulnerability finding(s) across {{ count($report['inspector']['regions']) }} queried region(s):
+            <p>{{ number_format($report['inspector']['total']) }} active package and code vulnerability finding(s) across {{ count($report['inspector']['regions']) }} queried region(s). Select a severity to filter the findings table.</p>
+            <div class="report-tags" role="group" aria-label="Filter Inspector findings by severity">
+                <button type="button" class="report-tag" data-inspector-severity="ALL" aria-pressed="true">All {{ number_format($report['inspector']['total']) }}</button>
                 @foreach ($report['inspector']['counts'] as $severity => $count)
-                    <span class="report-tag">{{ $severity }} {{ number_format($count) }}</span>
+                    <button type="button" class="report-tag" data-inspector-severity="{{ $severity }}" aria-pressed="false">{{ $severity }} {{ number_format($count) }}</button>
                 @endforeach
-            </p>
+            </div>
             @if ($report['inspector']['findings'])
-                <div class="scroll report-table" data-report-pagination data-page-size="10"><table><thead><tr><th>Severity</th><th>Finding / CVE</th><th>Resource</th><th>Package / code location</th><th>Fix available</th><th>Exploit</th><th>Region</th></tr></thead><tbody>
+                <div class="scroll report-table" data-report-pagination data-page-size="10" data-filter-buttons="[data-inspector-severity]"><table><thead><tr><th>Severity</th><th>Finding / CVE</th><th>Resource</th><th>Package / code location</th><th>Fix available</th><th>Exploit</th><th>Region</th></tr></thead><tbody>
                     @foreach ($report['inspector']['findings'] as $finding)
-                        <tr>
+                        <tr data-severity="{{ $finding['severity'] }}">
                             <td><span class="report-tag">{{ $finding['severity'] }}</span></td>
                             <td>{{ $finding['title'] }}<br><small>{{ $finding['vulnerability_id'] }}</small></td>
                             <td>{{ $finding['resource'] }}<br><small>{{ $finding['resource_type'] }}</small></td>
@@ -164,6 +171,7 @@
                     @endforeach
                 </tbody></table></div>
                 <div class="report-pagination" data-pagination-controls aria-label="Amazon Inspector findings pagination"><button type="button" data-page-previous aria-label="Previous Inspector findings page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next Inspector findings page">Next</button></div>
+                <p class="inspector-filter-empty" data-inspector-filter-empty hidden>No findings match this severity.</p>
             @else
                 <p class="muted">No active package or code vulnerability findings were returned for the configured regions.</p>
             @endif
@@ -335,27 +343,53 @@
     document.querySelectorAll('[data-report-pagination]').forEach((tableWrap) => {
         const rows = Array.from(tableWrap.querySelectorAll('tbody tr'));
         const controls = tableWrap.parentElement.querySelector('[data-pagination-controls]');
+        const filterSelector = tableWrap.dataset.filterButtons;
+        const filterButtons = filterSelector ? Array.from(tableWrap.parentElement.querySelectorAll(filterSelector)) : [];
+        const emptyMessage = tableWrap.parentElement.querySelector('[data-inspector-filter-empty]');
         const pageSize = Number(tableWrap.dataset.pageSize) || 5;
 
-        if (!controls || rows.length <= pageSize || (rows.length === 1 && rows[0].querySelector('td[colspan]'))) {
+        if (!controls || (rows.length <= pageSize && filterButtons.length === 0) || (rows.length === 1 && rows[0].querySelector('td[colspan]'))) {
             controls?.remove();
             return;
         }
 
-        const pageCount = Math.ceil(rows.length / pageSize);
         const status = controls.querySelector('[data-page-status]');
         const previous = controls.querySelector('[data-page-previous]');
         const next = controls.querySelector('[data-page-next]');
         let page = 0;
+        let selectedSeverity = 'ALL';
 
         const renderPage = () => {
-            rows.forEach((row, index) => {
-                row.hidden = index < page * pageSize || index >= (page + 1) * pageSize;
+            const matchingRows = rows.filter((row) => selectedSeverity === 'ALL' || row.dataset.severity === selectedSeverity);
+            const pageCount = Math.max(1, Math.ceil(matchingRows.length / pageSize));
+            page = Math.min(page, pageCount - 1);
+            const visibleRows = new Set(matchingRows.slice(page * pageSize, (page + 1) * pageSize));
+
+            rows.forEach((row) => {
+                row.hidden = !visibleRows.has(row);
             });
-            status.textContent = `Page ${page + 1} of ${pageCount}`;
+            if (emptyMessage) {
+                emptyMessage.hidden = matchingRows.length > 0;
+            }
+            status.textContent = filterButtons.length
+                ? (matchingRows.length === 0 ? 'No findings for this severity' : `Page ${page + 1} of ${pageCount} · ${matchingRows.length} findings`)
+                : `Page ${page + 1} of ${pageCount}`;
             previous.disabled = page === 0;
             next.disabled = page === pageCount - 1;
+            controls.hidden = matchingRows.length <= pageSize;
+            filterButtons.forEach((button) => {
+                const isSelected = button.dataset.inspectorSeverity === selectedSeverity;
+                button.setAttribute('aria-pressed', String(isSelected));
+            });
         };
+
+        filterButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                selectedSeverity = button.dataset.inspectorSeverity;
+                page = 0;
+                renderPage();
+            });
+        });
 
         previous.addEventListener('click', () => {
             if (page > 0) {
