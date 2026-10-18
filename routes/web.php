@@ -44,7 +44,7 @@ Route::middleware(['auth', EnsureTwoFactorAuthenticated::class])->group(function
         Route::get('/reporting/settings', [MonthlyReportController::class, 'settings'])->name('monthly-reports.settings');
         Route::put('/reporting/settings', [MonthlyReportController::class, 'updateSettings'])->name('monthly-reports.settings.update');
         Route::post('/reporting/settings/rotate-link', [MonthlyReportController::class, 'rotateToken'])->name('monthly-reports.settings.rotate');
-        Route::resource('support-tickets', SupportTicketController::class)->only(['index', 'create', 'store', 'show', 'update']);
+        Route::resource('support-tickets', SupportTicketController::class)->only(['index', 'create', 'store', 'show', 'update', 'destroy']);
         Route::get('/support-tickets/{supportTicket}/attachments/{attachment}/download', [SupportTicketController::class, 'download'])
             ->name('support-tickets.attachments.download');
     });

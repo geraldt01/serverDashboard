@@ -60,6 +60,45 @@ class SupportTicketTest extends TestCase
         $this->get(route('support-tickets.show', $ticket))->assertSee('Change history')->assertSee('Checkout unavailable');
     }
 
+    public function test_admin_can_delete_ticket_and_its_s3_attachments(): void
+    {
+        Storage::fake('s3');
+        $ticket = SupportTicket::create($this->ticketData());
+        $attachment = $ticket->attachments()->create([
+            'original_name' => 'error.txt', 'path' => 'support-tickets/'.$ticket->id.'/error.txt',
+            'mime_type' => 'text/plain', 'size' => 10,
+        ]);
+        Storage::disk('s3')->put($attachment->path, 'ticket attachment');
+
+        $this->asAdmin()->get(route('support-tickets.show', $ticket))
+            ->assertOk()->assertSee('Delete ticket')->assertSee(route('support-tickets.destroy', $ticket));
+        $this->delete(route('support-tickets.destroy', $ticket))
+            ->assertRedirect(route('support-tickets.index'))->assertSessionHas('status', 'Support ticket deleted.');
+
+        $this->assertDatabaseMissing('support_tickets', ['id' => $ticket->id]);
+        $this->assertDatabaseMissing('support_ticket_attachments', ['id' => $attachment->id]);
+        $this->assertDatabaseMissing('support_ticket_changes', ['support_ticket_id' => $ticket->id]);
+        Storage::disk('s3')->assertMissing($attachment->path);
+    }
+
+    public function test_ticket_is_preserved_when_s3_attachment_deletion_fails(): void
+    {
+        $ticket = SupportTicket::create($this->ticketData());
+        $attachment = $ticket->attachments()->create([
+            'original_name' => 'error.txt', 'path' => 'support-tickets/'.$ticket->id.'/error.txt',
+            'mime_type' => 'text/plain', 'size' => 10,
+        ]);
+        Storage::shouldReceive('disk')->with('s3')->andReturn($disk = \Mockery::mock());
+        $disk->shouldReceive('delete')->once()->with([$attachment->path])->andReturn(false);
+
+        $this->asAdmin()->delete(route('support-tickets.destroy', $ticket))
+            ->assertRedirect(route('support-tickets.show', $ticket))
+            ->assertSessionHas('error');
+
+        $this->assertDatabaseHas('support_tickets', ['id' => $ticket->id]);
+        $this->assertDatabaseHas('support_ticket_attachments', ['id' => $attachment->id]);
+    }
+
     public function test_upload_uses_private_visibility_and_bucket_owner_acl(): void
     {
         Storage::shouldReceive('disk')->with('s3')->andReturn($disk = \Mockery::mock());
@@ -213,11 +252,14 @@ class SupportTicketTest extends TestCase
 
     public function test_guest_and_viewer_cannot_access_ticketing(): void
     {
+        $ticket = SupportTicket::create($this->ticketData());
         $this->get(route('support-tickets.index'))->assertRedirect(route('login'));
+        $this->delete(route('support-tickets.destroy', $ticket))->assertRedirect(route('login'));
         $viewer = User::factory()->create(['role' => 'viewer', 'two_factor_confirmed_at' => now()]);
         $this->withSession(['mfa.verified_user' => $viewer->id])->actingAs($viewer);
         $this->get(route('support-tickets.index'))->assertForbidden();
         $this->post(route('support-tickets.store'), $this->ticketData())->assertForbidden();
+        $this->delete(route('support-tickets.destroy', $ticket))->assertForbidden();
     }
 
     public function test_attachment_must_belong_to_ticket(): void

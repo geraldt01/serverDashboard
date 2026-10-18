@@ -61,6 +61,25 @@ class SupportTicketController extends Controller
         return redirect()->route('support-tickets.show', $supportTicket)->with('status', 'Support ticket updated.');
     }
 
+    public function destroy(SupportTicket $supportTicket)
+    {
+        try {
+            $attachmentPaths = $supportTicket->attachments()->pluck('path')->all();
+            if ($attachmentPaths !== [] && ! Storage::disk('s3')->delete($attachmentPaths)) {
+                throw new RuntimeException('Support ticket attachment deletion failed.');
+            }
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return redirect()->route('support-tickets.show', $supportTicket)
+                ->with('error', 'The ticket could not be deleted because its attachments could not be removed. Please try again.');
+        }
+
+        $supportTicket->delete();
+
+        return redirect()->route('support-tickets.index')->with('status', 'Support ticket deleted.');
+    }
+
     public function download(SupportTicket $supportTicket, SupportTicketAttachment $attachment)
     {
         abort_unless($attachment->support_ticket_id === $supportTicket->id, 404);
