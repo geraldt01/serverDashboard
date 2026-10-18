@@ -46,8 +46,12 @@ class MonthlyItSecurityReport
         $currentTicketChanges = SupportTicketChange::query()->with(['ticket', 'actor'])
             ->whereBetween('created_at', [CarbonImmutable::now()->startOfMonth(), CarbonImmutable::now()])
             ->latest()->get();
-        $outdatedPlugins = $pluginRows->where('status', 'outdated')->unique(fn ($row) => $row->wordpress_site_id.':'.$row->plugin_name)->values();
-        $outdatedCore = $coreRows->where('status', 'outdated')->unique('wordpress_site_id')->values();
+        $outdatedPlugins = $pluginRows->sortByDesc(fn ($row) => [$row->checked_at, $row->id])
+            ->unique(fn ($row) => $row->wordpress_site_id.':'.$row->plugin_name)
+            ->where('status', 'outdated')->values();
+        $outdatedCore = $coreRows->sortByDesc(fn ($row) => [$row->checked_at, $row->id])
+            ->unique('wordpress_site_id')
+            ->where('status', 'outdated')->values();
         $latestEc2 = $latestEc2->keyBy(fn ($status) => ($status->aws_region ?: config('services.aws.region')).':'.$status->instance_id);
         $ec2Uptime = UptimeCheck::query()->where('asset_type', 'ec2')
             ->whereIn('id', UptimeCheck::query()->selectRaw('MAX(id)')->where('asset_type', 'ec2')->groupBy('asset_key'))
