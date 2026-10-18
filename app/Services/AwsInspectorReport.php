@@ -64,9 +64,22 @@ class AwsInspectorReport
         }
 
         $counts = array_fill_keys(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL', 'UNTRIAGED'], 0);
+        $packageCoverage = [
+            'total' => 0,
+            'exploit' => ['YES' => 0, 'NO' => 0, 'PARTIAL' => 0, 'NOT_REPORTED' => 0],
+            'fix' => ['YES' => 0, 'NO' => 0, 'PARTIAL' => 0, 'NOT_REPORTED' => 0],
+        ];
         foreach ($findings as $finding) {
             $severity = $finding['severity'];
             $counts[$severity] = ($counts[$severity] ?? 0) + 1;
+
+            if ($finding['type'] !== 'PACKAGE_VULNERABILITY') {
+                continue;
+            }
+
+            $packageCoverage['total']++;
+            $packageCoverage['exploit'][$finding['exploit_available']]++;
+            $packageCoverage['fix'][$finding['fix_available']]++;
         }
 
         if ($queriedRegions === []) {
@@ -85,6 +98,7 @@ class AwsInspectorReport
             'failed_regions' => $failedRegions,
             'findings' => $findings,
             'counts' => $counts,
+            'package_coverage' => $packageCoverage,
             'total' => count($findings),
             'refreshed_at' => CarbonImmutable::now(),
             'data_note' => $note,
@@ -102,8 +116,8 @@ class AwsInspectorReport
         $codeLocation = trim(($codeVulnerability['detectorName'] ?? '').' '.($codeVulnerability['filePath'] ?? ''));
 
         return [
-            'title' => $finding['Title'] ?? 'Untitled vulnerability finding',
-            'type' => $finding['type'] ?? 'Vulnerability',
+            'title' => $finding['title'] ?? 'Untitled vulnerability finding',
+            'type' => strtoupper($finding['type'] ?? 'VULNERABILITY'),
             'severity' => strtoupper($finding['severity'] ?? 'UNTRIAGED'),
             'resource' => $resource['id'] ?? 'Unknown resource',
             'resource_type' => $resource['type'] ?? 'Unknown type',
@@ -111,9 +125,17 @@ class AwsInspectorReport
             'vulnerability_id' => $vulnerability['vulnerabilityId'] ?? implode(', ', $codeVulnerability['cwes'] ?? []),
             'packages' => implode(', ', array_slice($packageNames, 0, 3)) ?: ($codeLocation ?: 'Not provided'),
             'fixed_versions' => implode(', ', array_slice($fixedVersions, 0, 3)),
-            'exploit_available' => strtoupper($finding['exploitAvailable'] ?? 'NO'),
+            'exploit_available' => $this->availabilityStatus($finding['exploitAvailable'] ?? null),
+            'fix_available' => $this->availabilityStatus($finding['fixAvailable'] ?? null),
             'first_observed_at' => $finding['firstObservedAt'] ?? null,
         ];
+    }
+
+    private function availabilityStatus(?string $status): string
+    {
+        $status = strtoupper($status ?? 'NOT_REPORTED');
+
+        return in_array($status, ['YES', 'NO', 'PARTIAL'], true) ? $status : 'NOT_REPORTED';
     }
 
     private function unavailable(array $regions, string $note): array
@@ -125,6 +147,11 @@ class AwsInspectorReport
             'failed_regions' => $regions,
             'findings' => [],
             'counts' => array_fill_keys(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL', 'UNTRIAGED'], 0),
+            'package_coverage' => [
+                'total' => null,
+                'exploit' => ['YES' => 0, 'NO' => 0, 'PARTIAL' => 0, 'NOT_REPORTED' => 0],
+                'fix' => ['YES' => 0, 'NO' => 0, 'PARTIAL' => 0, 'NOT_REPORTED' => 0],
+            ],
             'total' => null,
             'refreshed_at' => CarbonImmutable::now(),
             'data_note' => $note,

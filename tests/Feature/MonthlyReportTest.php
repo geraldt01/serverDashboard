@@ -148,8 +148,10 @@ class MonthlyReportTest extends TestCase
         ])->andReturn([
             'findings' => [[
                 'title' => 'Critical operating system vulnerability',
+                'type' => 'PACKAGE_VULNERABILITY',
                 'severity' => 'CRITICAL',
                 'exploitAvailable' => 'YES',
+                'fixAvailable' => 'YES',
                 'resources' => [['id' => 'i-0123456789abcdef0', 'type' => 'AWS_EC2_INSTANCE', 'region' => 'ap-southeast-2']],
                 'packageVulnerabilityDetails' => [
                     'vulnerabilityId' => 'CVE-2026-1234',
@@ -178,8 +180,45 @@ class MonthlyReportTest extends TestCase
         $this->assertSame('openssl', $report['findings'][0]['packages']);
         $this->assertSame('3.0.15', $report['findings'][0]['fixed_versions']);
         $this->assertSame('YES', $report['findings'][0]['exploit_available']);
+        $this->assertSame('YES', $report['findings'][0]['fix_available']);
+        $this->assertSame(1, $report['package_coverage']['total']);
+        $this->assertSame(1, $report['package_coverage']['exploit']['YES']);
+        $this->assertSame(1, $report['package_coverage']['fix']['YES']);
         $this->assertSame('CWE-89', $report['findings'][1]['vulnerability_id']);
         $this->assertSame('SQL injection src/main.php', $report['findings'][1]['packages']);
+    }
+
+    public function test_inspector_coverage_tiles_show_reported_yes_partial_and_missing_counts(): void
+    {
+        $inspectorReport = \Mockery::mock(AwsInspectorReport::class);
+        $inspectorReport->shouldReceive('build')->once()->andReturn([
+            'available' => true,
+            'partial' => false,
+            'regions' => ['ap-southeast-2'],
+            'failed_regions' => [],
+            'findings' => [],
+            'counts' => array_fill_keys(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL', 'UNTRIAGED'], 0),
+            'package_coverage' => [
+                'total' => 454,
+                'exploit' => ['YES' => 112, 'NO' => 330, 'PARTIAL' => 7, 'NOT_REPORTED' => 5],
+                'fix' => ['YES' => 408, 'NO' => 38, 'PARTIAL' => 3, 'NOT_REPORTED' => 5],
+            ],
+            'total' => 454,
+            'refreshed_at' => now(),
+            'data_note' => 'Live Inspector test data.',
+        ]);
+        $this->app->instance(AwsInspectorReport::class, $inspectorReport);
+        $settings = MonthlyReportSetting::current();
+
+        $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
+            ->assertOk()
+            ->assertSee('Findings with public exploit available')
+            ->assertSee('112')
+            ->assertSee('/ 454 total package findings')
+            ->assertSee('7 partial; 5 not reported by Inspector')
+            ->assertSee('Findings with fix available')
+            ->assertSee('408')
+            ->assertSee('3 partial; 5 not reported by Inspector');
     }
 
     public function test_admin_can_change_the_manager_email_and_rotate_the_report_link(): void

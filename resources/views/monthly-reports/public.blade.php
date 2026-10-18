@@ -36,6 +36,13 @@
     .patch-details-dialog .patch-details-text { white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; line-height:1.6; }
     .patch-details-actions { display:flex; justify-content:flex-end; margin-top:16px; }
     .report-tag { display:inline-block; padding:4px 8px; border-radius:4px; color:#86144e; background:#f8e7f0; font-size:11px; font-weight:700; white-space:nowrap; }
+    .inspector-coverage { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); margin:14px 0 18px; background:#fff; border:1px solid #e9e5f2; border-radius:8px; overflow:hidden; }
+    .inspector-coverage-item { padding:15px 18px; border-top:3px solid #0875e1; }
+    .inspector-coverage-item + .inspector-coverage-item { border-left:1px solid #e9e5f2; }
+    .inspector-coverage-item strong { display:block; font-size:13px; }
+    .inspector-coverage-value { display:block; margin-top:4px; color:#0875e1; font-size:36px; font-weight:300; line-height:1.15; }
+    .inspector-coverage-total { color:#202633; font-size:12px; }
+    .inspector-coverage-note { display:block; margin-top:5px; color:#736c88; font-size:11px; }
     .report-note { padding:10px 12px; color:#62546b; background:#faf7fb; border-left:3px solid #c81e78; font-size:12px; }
     .report-list { margin:0; padding-left:19px; }
     .report-list li { margin:6px 0; }
@@ -46,6 +53,7 @@
     .report-footnote { margin:20px 0; color:#736c88; font-size:12px; line-height:1.5; }
     @media(max-width:900px) { .report-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .report-metric { border-bottom:1px solid #e9e5f2; } }
     @media(max-width:600px) { .report-heading { padding:20px 17px; } .report-section { padding:16px; } .report-metrics { grid-template-columns:1fr 1fr; } .report-metric { padding:12px; } .report-metric strong { font-size:20px; } }
+    @media(max-width:600px) { .inspector-coverage-item { padding:12px; } .inspector-coverage-value { font-size:30px; } }
 </style>
 
 <div class="report-page">
@@ -122,7 +130,21 @@
     <section class="panel report-section">
         <h2>Amazon Inspector vulnerabilities</h2>
         @if ($report['inspector']['available'])
-            <p>{{ number_format($report['inspector']['total']) }} active package vulnerability finding(s) across {{ count($report['inspector']['regions']) }} queried region(s):
+            <p>Active vulnerability findings returned from Inspector in {{ count($report['inspector']['regions']) }} queried region(s).</p>
+            @php($packageCoverage = $report['inspector']['package_coverage'])
+            <div class="inspector-coverage" aria-label="Inspector findings with exploit and fix availability">
+                <div class="inspector-coverage-item">
+                    <strong>Findings with public exploit available</strong>
+                    <span class="inspector-coverage-value">{{ number_format($packageCoverage['exploit']['YES']) }}<span class="inspector-coverage-total"> / {{ number_format($packageCoverage['total']) }} total package findings</span></span>
+                    <span class="inspector-coverage-note">{{ number_format($packageCoverage['exploit']['PARTIAL']) }} partial; {{ number_format($packageCoverage['exploit']['NOT_REPORTED']) }} not reported by Inspector</span>
+                </div>
+                <div class="inspector-coverage-item">
+                    <strong>Findings with fix available</strong>
+                    <span class="inspector-coverage-value">{{ number_format($packageCoverage['fix']['YES']) }}<span class="inspector-coverage-total"> / {{ number_format($packageCoverage['total']) }} total package findings</span></span>
+                    <span class="inspector-coverage-note">{{ number_format($packageCoverage['fix']['PARTIAL']) }} partial; {{ number_format($packageCoverage['fix']['NOT_REPORTED']) }} not reported by Inspector</span>
+                </div>
+            </div>
+            <p>{{ number_format($report['inspector']['total']) }} active package and code vulnerability finding(s) across {{ count($report['inspector']['regions']) }} queried region(s):
                 @foreach ($report['inspector']['counts'] as $severity => $count)
                     <span class="report-tag">{{ $severity }} {{ number_format($count) }}</span>
                 @endforeach
@@ -135,7 +157,7 @@
                             <td>{{ $finding['title'] }}<br><small>{{ $finding['vulnerability_id'] }}</small></td>
                             <td>{{ $finding['resource'] }}<br><small>{{ $finding['resource_type'] }}</small></td>
                             <td>{{ $finding['packages'] ?: 'Not provided' }}</td>
-                            <td>{{ $finding['fixed_versions'] ?: 'No fix reported' }}</td>
+                            <td>{{ $finding['fix_available'] }}{{ $finding['fixed_versions'] ? ' · '.$finding['fixed_versions'] : '' }}</td>
                             <td>{{ $finding['exploit_available'] }}</td>
                             <td>{{ $finding['region'] }}</td>
                         </tr>
@@ -143,7 +165,7 @@
                 </tbody></table></div>
                 <div class="report-pagination" data-pagination-controls aria-label="Amazon Inspector findings pagination"><button type="button" data-page-previous aria-label="Previous Inspector findings page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next Inspector findings page">Next</button></div>
             @else
-                <p class="muted">No active package vulnerability findings were returned for the configured regions.</p>
+                <p class="muted">No active package or code vulnerability findings were returned for the configured regions.</p>
             @endif
         @else
             <p>{{ $report['inspector']['data_note'] }}</p>
