@@ -55,7 +55,7 @@
     </header>
 
     @php
-        $hasUrgentRisk = collect($report['risks'])->contains(fn ($risk) => str_contains(strtolower($risk), 'security updates') || str_contains(strtolower($risk), 'below the 99.9%'));
+        $hasUrgentRisk = collect($report['risks'])->contains(fn ($risk) => str_contains(strtolower($risk), 'security updates') || str_contains(strtolower($risk), 'below the 99.9%') || str_contains(strtolower($risk), 'amazon inspector reports'));
         $uptimeLabel = $report['uptime']['percent'] === null ? 'Not measured' : number_format($report['uptime']['percent'], 3).'%';
     @endphp
     <div class="report-status">
@@ -79,14 +79,14 @@
     <section class="panel report-section">
         <h2>Server patch status</h2>
         <h3>Current Status</h3>
-        <div class="scroll report-table"><table><thead><tr><th>Server</th><th>Updates pending</th><th>Security updates</th><th>Last report</th></tr></thead><tbody>
+        <div class="scroll report-table"><table><thead><tr><th>Server</th><th>Updates pending</th><th>Security updates</th><th>Pending update details</th><th>Pending security update details</th><th>Last report</th></tr></thead><tbody>
             @forelse ($report['ec2']['latest'] as $instance)
-                <tr><td><strong>{{ $instance->instance_name }}</strong><br><small>{{ $instance->instance_id }}{{ $instance->aws_region ? ' · '.$instance->aws_region : '' }}</small></td><td>{{ $instance->missing_count }}</td><td>{{ $instance->security_count }}</td><td>{{ $instance->checked_at?->format('j M Y, H:i') ?? 'Unknown' }}</td></tr>
+                <tr><td><strong>{{ $instance->instance_name }}</strong><br><small>{{ $instance->instance_id }}{{ $instance->aws_region ? ' · '.$instance->aws_region : '' }}</small></td><td>{{ $instance->missing_count }}</td><td>{{ $instance->security_count }}</td><td colspan="2">Individual package details are not reported by SSM.</td><td>{{ $instance->checked_at?->format('j M Y, H:i') ?? 'Unknown' }}</td></tr>
             @empty
-                <tr><td colspan="4">No EC2 patch snapshots yet. Check AWS/SSM access and scheduled collection.</td></tr>
+                <tr><td colspan="6">No EC2 patch snapshots yet. Check AWS/SSM access and scheduled collection.</td></tr>
             @endforelse
             @foreach ($report['servers'] as $server)
-                <tr><td><strong>{{ $server->name }}</strong><br><small>Agent-reported server</small></td><td>{{ $server->total_updates ?? 'Unknown' }}</td><td>{{ $server->security_updates ?? 'Unknown' }}</td><td>{{ $server->last_reported_at?->format('j M Y, H:i') ?? 'Never' }}</td></tr>
+                <tr><td><strong>{{ $server->name }}</strong><br><small>Agent-reported server</small></td><td>{{ $server->total_updates ?? 'Unknown' }}</td><td>{{ $server->security_updates ?? 'Unknown' }}</td><td style="white-space:pre-line">{{ $server->update_details ?: 'Not reported' }}</td><td style="white-space:pre-line">{{ $server->security_update_details ?: 'Not reported' }}</td><td>{{ $server->last_reported_at?->format('j M Y, H:i') ?? 'Never' }}</td></tr>
             @endforeach
         </tbody></table></div>
         <h3 style="margin-top:22px">Recent patch history · last 30 days</h3>
@@ -120,9 +120,41 @@
     </section>
 
     <section class="panel report-section">
+        <h2>Amazon Inspector vulnerabilities</h2>
+        @if ($report['inspector']['available'])
+            <p>{{ number_format($report['inspector']['total']) }} active package vulnerability finding(s) across {{ count($report['inspector']['regions']) }} queried region(s):
+                @foreach ($report['inspector']['counts'] as $severity => $count)
+                    <span class="report-tag">{{ $severity }} {{ number_format($count) }}</span>
+                @endforeach
+            </p>
+            @if ($report['inspector']['findings'])
+                <div class="scroll report-table" data-report-pagination data-page-size="10"><table><thead><tr><th>Severity</th><th>Finding / CVE</th><th>Resource</th><th>Package / code location</th><th>Fix available</th><th>Exploit</th><th>Region</th></tr></thead><tbody>
+                    @foreach ($report['inspector']['findings'] as $finding)
+                        <tr>
+                            <td><span class="report-tag">{{ $finding['severity'] }}</span></td>
+                            <td>{{ $finding['title'] }}<br><small>{{ $finding['vulnerability_id'] }}</small></td>
+                            <td>{{ $finding['resource'] }}<br><small>{{ $finding['resource_type'] }}</small></td>
+                            <td>{{ $finding['packages'] ?: 'Not provided' }}</td>
+                            <td>{{ $finding['fixed_versions'] ?: 'No fix reported' }}</td>
+                            <td>{{ $finding['exploit_available'] }}</td>
+                            <td>{{ $finding['region'] }}</td>
+                        </tr>
+                    @endforeach
+                </tbody></table></div>
+                <div class="report-pagination" data-pagination-controls aria-label="Amazon Inspector findings pagination"><button type="button" data-page-previous aria-label="Previous Inspector findings page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next Inspector findings page">Next</button></div>
+            @else
+                <p class="muted">No active package vulnerability findings were returned for the configured regions.</p>
+            @endif
+        @else
+            <p>{{ $report['inspector']['data_note'] }}</p>
+        @endif
+        <p class="report-note">{{ $report['inspector']['data_note'] }} Checked {{ $report['inspector']['refreshed_at']->format('j M Y, H:i T') }}. Active package and code vulnerability findings are included; network-reachability findings are outside this section.</p>
+    </section>
+
+    <section class="panel report-section">
         <h2>WordPress updates</h2>
         <p>{{ $report['vulnerabilities']['plugin_findings']->count() }} outdated plugin finding(s), {{ $report['vulnerabilities']['core_findings']->count() }} outdated core finding(s); {{ $report['vulnerabilities']['resolved_update_findings'] }} update finding(s) cleared in later reports.</p>
-        <p class="report-note">These are available-update findings, not results from a CVE scanner. No vulnerability scanner is integrated, and cleared findings are inferred from later reports rather than verified installation records. EC2 missing-patch counts decreased by an estimated {{ $report['vulnerabilities']['patches_fixed_estimate'] }} during the month.</p>
+        <p class="report-note">These are available-update findings, not confirmed exploitable vulnerabilities. Amazon Inspector results are reported in the separate section above, and cleared WordPress findings are inferred from later reports rather than verified installation records. EC2 missing-patch counts decreased by an estimated {{ $report['vulnerabilities']['patches_fixed_estimate'] }} during the month.</p>
         <h3>Current Status</h3>
         @if ($report['vulnerabilities']['plugin_findings']->isNotEmpty() || $report['vulnerabilities']['core_findings']->isNotEmpty())
             <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>Site</th><th>Component</th><th>Installed</th><th>Available</th></tr></thead><tbody>

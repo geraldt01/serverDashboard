@@ -13,7 +13,9 @@ use App\Models\WordpressSite;
 use App\Console\Commands\SendMonthlyItSecurityReport;
 use App\Mail\MonthlyItSecurityReportMail;
 use App\Services\AwsCostReport;
+use App\Services\AwsInspectorReport;
 use App\Services\MonthlyItSecurityReport;
+use Aws\Inspector2\Inspector2Client;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
@@ -128,6 +130,56 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Config App change log')
             ->assertSee('Systems, access and operating guide');
         $this->assertStringNotContainsString('<details', $response->getContent());
+    }
+
+    public function test_inspector_report_maps_active_vulnerability_findings_and_counts_severity(): void
+    {
+        config(['services.inspector.regions' => ['ap-southeast-2']]);
+        $client = \Mockery::mock(Inspector2Client::class);
+        $client->shouldReceive('listFindings')->once()->with([
+            'filterCriteria' => [
+                'findingStatus' => [['comparison' => 'EQUALS', 'value' => 'ACTIVE']],
+                'findingType' => [
+                    ['comparison' => 'EQUALS', 'value' => 'PACKAGE_VULNERABILITY'],
+                    ['comparison' => 'EQUALS', 'value' => 'CODE_VULNERABILITY'],
+                ],
+            ],
+            'maxResults' => 100,
+        ])->andReturn([
+            'findings' => [[
+                'title' => 'Critical operating system vulnerability',
+                'severity' => 'CRITICAL',
+                'exploitAvailable' => 'YES',
+                'resources' => [['id' => 'i-0123456789abcdef0', 'type' => 'AWS_EC2_INSTANCE', 'region' => 'ap-southeast-2']],
+                'packageVulnerabilityDetails' => [
+                    'vulnerabilityId' => 'CVE-2026-1234',
+                    'vulnerablePackages' => [['name' => 'openssl', 'fixedInVersion' => '3.0.15']],
+                ],
+            ], [
+                'title' => 'Code injection vulnerability',
+                'type' => 'CODE_VULNERABILITY',
+                'severity' => 'HIGH',
+                'resources' => [['id' => 'repo/main.php', 'type' => 'AWS_CODE_REPOSITORY', 'region' => 'ap-southeast-2']],
+                'codeVulnerabilityDetails' => [
+                    'detectorName' => 'SQL injection',
+                    'filePath' => 'src/main.php',
+                    'cwes' => ['CWE-89'],
+                ],
+            ]],
+        ]);
+
+        $report = (new AwsInspectorReport($client))->build();
+
+        $this->assertTrue($report['available']);
+        $this->assertSame(2, $report['total']);
+        $this->assertSame(1, $report['counts']['CRITICAL']);
+        $this->assertSame(1, $report['counts']['HIGH']);
+        $this->assertSame('CVE-2026-1234', $report['findings'][0]['vulnerability_id']);
+        $this->assertSame('openssl', $report['findings'][0]['packages']);
+        $this->assertSame('3.0.15', $report['findings'][0]['fixed_versions']);
+        $this->assertSame('YES', $report['findings'][0]['exploit_available']);
+        $this->assertSame('CWE-89', $report['findings'][1]['vulnerability_id']);
+        $this->assertSame('SQL injection src/main.php', $report['findings'][1]['packages']);
     }
 
     public function test_admin_can_change_the_manager_email_and_rotate_the_report_link(): void

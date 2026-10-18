@@ -64,6 +64,7 @@ class MonthlyItSecurityReport
         $siteUpdateFindings = $outdatedPlugins->count() + $outdatedCore->count();
         $uptime = $this->uptimeSummary($period);
         $costs = app(AwsCostReport::class)->build();
+        $inspector = app(AwsInspectorReport::class)->build();
 
         return [
             'period' => $period,
@@ -86,12 +87,13 @@ class MonthlyItSecurityReport
             'uptime' => $uptime,
             'users' => $users,
             'costs' => $costs,
+            'inspector' => $inspector,
             'backups' => [
                 ['asset' => 'EC2 instances', 'policy' => 'Weekly AWS backups (reported policy; not verified by this dashboard)', 'restore_test' => 'Quarterly restore test; latest completion not recorded'],
                 ['asset' => 'WordPress websites', 'policy' => 'Daily WP Engine backups (reported policy; not verified by this dashboard)', 'restore_test' => 'Quarterly restore test; latest completion not recorded'],
             ],
             'improvement' => $this->improvement($securityPatchesPending, $patchesPending, $siteUpdateFindings, $uptime),
-            'risks' => $this->risks($latestEc2, $serverInventory, $sites, $webpageChecks, $users, $uptime, $costs),
+            'risks' => $this->risks($latestEc2, $serverInventory, $sites, $webpageChecks, $users, $uptime, $costs, $inspector),
             'security_activity' => [
                 'security_patch_records' => Ec2PatchStatus::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->count(),
                 'plugin_updates_checked' => $pluginRows->count(),
@@ -275,7 +277,7 @@ class MonthlyItSecurityReport
         });
     }
 
-    private function risks($ec2, $servers, $sites, $webpageChecks, $users, array $uptime, array $costs): array
+    private function risks($ec2, $servers, $sites, $webpageChecks, $users, array $uptime, array $costs, array $inspector): array
     {
         $risks = [];
         if ($ec2->sum('security_count') + $servers->sum('security_updates') > 0) {
@@ -304,6 +306,12 @@ class MonthlyItSecurityReport
         }
         if (! $costs['available']) {
             $risks[] = 'AWS cost data could not be retrieved; review Cost Explorer access and credentials.';
+        }
+        if ($inspector['available'] && ($inspector['counts']['CRITICAL'] > 0 || $inspector['counts']['HIGH'] > 0)) {
+            $risks[] = 'Amazon Inspector reports '.$inspector['counts']['CRITICAL'].' critical and '.$inspector['counts']['HIGH'].' high active package vulnerability finding(s).';
+        }
+        if (! $inspector['available'] || $inspector['partial']) {
+            $risks[] = 'Amazon Inspector vulnerability coverage is unavailable or incomplete; review the Inspector section and AWS region permissions.';
         }
         if ($users->contains(fn ($user) => ! $user->two_factor_confirmed_at)) {
             $risks[] = 'At least one dashboard user has not completed MFA enrollment.';
