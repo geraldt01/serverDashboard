@@ -102,49 +102,6 @@
     </section>
 
     <section class="panel report-section">
-        <h2>Server patch status</h2>
-        <h3>Current Status</h3>
-        <div class="scroll report-table"><table><thead><tr><th>Server</th><th>Updates pending</th><th>Security updates</th><th>Pending update details</th><th>Pending security update details</th><th>Last report</th></tr></thead><tbody>
-            @forelse ($report['ec2']['latest'] as $instance)
-                <tr><td><strong>{{ $instance->instance_name }}</strong><br><small>{{ $instance->instance_id }}{{ $instance->aws_region ? ' · '.$instance->aws_region : '' }}</small></td><td>{{ $instance->missing_count }}</td><td>{{ $instance->security_count }}</td><td colspan="2">Individual package details are not reported by SSM.</td><td>{{ $instance->checked_at?->format('j M Y, H:i') ?? 'Unknown' }}</td></tr>
-            @empty
-                <tr><td colspan="6">No EC2 patch snapshots yet. Check AWS/SSM access and scheduled collection.</td></tr>
-            @endforelse
-            @foreach ($report['servers'] as $server)
-                <tr><td><strong>{{ $server->name }}</strong><br><small>Agent-reported server</small></td><td>{{ $server->total_updates ?? 'Unknown' }}</td><td>{{ $server->security_updates ?? 'Unknown' }}</td><td style="white-space:pre-line">{{ $server->update_details ?: 'Not reported' }}</td><td style="white-space:pre-line">{{ $server->security_update_details ?: 'Not reported' }}</td><td>{{ $server->last_reported_at?->format('j M Y, H:i') ?? 'Never' }}</td></tr>
-            @endforeach
-        </tbody></table></div>
-        <h3 style="margin-top:22px">Recent patch history · last 30 days</h3>
-        <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Fix observed at</th><th>Server</th><th>Source</th><th>Resolved patches and update details</th></tr></thead><tbody>
-            @forelse ($report['patch_history'] as $event)
-                <tr>
-                    <td>{{ $event['at']->format('j M Y, H:i:s T') }}</td>
-                    <td>{{ $event['server'] }}@if ($event['region'])<br><small>{{ $event['region'] }}</small>@endif</td>
-                    <td><span class="report-tag">{{ $event['source'] }}</span></td>
-                    <td>
-                        <div class="patch-details-preview">{{ \Illuminate\Support\Str::limit($event['summary'], 110) }}</div>
-                        @if ($event['details'])<small class="patch-details-preview" style="display:block">{{ \Illuminate\Support\Str::limit($event['details'], 100) }}</small>@endif
-                        <button type="button" class="patch-details-more" data-open-patch-details="patch-details-{{ $loop->index }}" aria-haspopup="dialog" aria-controls="patch-details-{{ $loop->index }}">View more</button>
-                    </td>
-                </tr>
-            @empty
-                <tr><td colspan="4">No patch fixes have been observed in the last 30 days.</td></tr>
-            @endforelse
-        </tbody></table></div>
-        <div class="report-pagination" data-pagination-controls aria-label="Server patch history pagination"><button type="button" data-page-previous aria-label="Previous server patch history page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next server patch history page">Next</button></div>
-        @foreach ($report['patch_history'] as $event)
-            <dialog id="patch-details-{{ $loop->index }}" class="patch-details-dialog" aria-labelledby="patch-details-title-{{ $loop->index }}">
-                <h3 id="patch-details-title-{{ $loop->index }}">{{ $event['server'] }}</h3>
-                <p class="muted">{{ $event['at']->format('j M Y, H:i:s T') }} &middot; {{ $event['source'] }}{{ $event['region'] ? ' · '.$event['region'] : '' }}</p>
-                <p class="patch-details-text">{{ $event['summary'] }}</p>
-                @if ($event['details'])<div class="patch-details-text">{{ $event['details'] }}</div>@endif
-                <div class="patch-details-actions"><button type="button" data-close-patch-details autofocus>Close</button></div>
-            </dialog>
-        @endforeach
-        <p class="report-note" style="margin-top:10px">Times show when a report first observed fewer pending patches, not when updates became available. These are inferred fixes, not verified installation timestamps: the change occurred between checks. Package details are shown when a previously reported pending list has fully cleared; partial reductions cannot identify individual installed packages. Initial, unchanged and increased pending counts are excluded.</p>
-    </section>
-
-    <section class="panel report-section">
         <h2>Amazon Inspector vulnerabilities</h2>
         @if ($report['inspector']['available'])
             <p>Active vulnerability findings returned from Inspector in {{ count($report['inspector']['regions']) }} queried region(s).</p>
@@ -199,7 +156,7 @@
                 @endforeach
             </div>
             @if ($report['inspector']['findings'])
-                <div class="scroll report-table" data-report-pagination data-page-size="10" data-filter-buttons="[data-inspector-severity]" data-machine-filter-table><table><thead><tr><th>Severity</th><th>Finding / CVE</th><th>Resource</th><th>Package / code location</th><th>Fix available</th><th>Exploit</th><th>Age</th><th>First observed at</th></tr></thead><tbody>
+                <div class="scroll report-table" data-report-pagination data-page-size="10" data-filter-buttons="[data-inspector-severity]" data-machine-filter-table><table><thead><tr><th>Severity</th><th>Finding / CVE</th><th>Resource</th><th>Package / code location</th><th>Fix available</th><th>Age</th><th>First observed at</th></tr></thead><tbody>
                     @foreach ($report['inspector']['findings'] as $finding)
                         <tr data-severity="{{ $finding['severity'] }}" data-machine-keys="{{ implode('~', $finding['machine_keys']) }}">
                             <td><span class="report-tag">{{ $finding['severity'] }}</span></td>
@@ -207,7 +164,6 @@
                             <td>{{ $finding['resource'] }}<br><small>{{ $finding['resource_type'] }}</small></td>
                             <td>{{ $finding['packages'] ?: 'Not provided' }}</td>
                             <td>{{ $finding['fix_available'] }}{{ $finding['fixed_versions'] ? ' · '.$finding['fixed_versions'] : '' }}</td>
-                            <td>{{ $finding['exploit_available'] }}</td>
                             <td>{{ ($finding['age_days'] ?? null) === null ? 'Unknown' : number_format($finding['age_days']).' days' }}</td>
                             <td>{{ ($finding['first_observed_at'] ?? null)?->format('j M Y, H:i T') ?? 'Unknown' }}</td>
                         </tr>
@@ -222,6 +178,49 @@
             <p>{{ $report['inspector']['data_note'] }}</p>
         @endif
         <p class="report-note">{{ $report['inspector']['data_note'] }} Checked {{ $report['inspector']['refreshed_at']->format('j M Y, H:i T') }}. Active package and code vulnerability findings are included; network-reachability findings are outside this section.</p>
+    </section>
+
+    <section class="panel report-section">
+        <h2>Server patch status</h2>
+        <h3>Current Status</h3>
+        <div class="scroll report-table"><table><thead><tr><th>Server</th><th>Updates pending</th><th>Security updates</th><th>Pending update details</th><th>Pending security update details</th><th>Last report</th></tr></thead><tbody>
+            @forelse ($report['ec2']['latest'] as $instance)
+                <tr><td><strong>{{ $instance->instance_name }}</strong><br><small>{{ $instance->instance_id }}{{ $instance->aws_region ? ' · '.$instance->aws_region : '' }}</small></td><td>{{ $instance->missing_count }}</td><td>{{ $instance->security_count }}</td><td colspan="2">Individual package details are not reported by SSM.</td><td>{{ $instance->checked_at?->format('j M Y, H:i') ?? 'Unknown' }}</td></tr>
+            @empty
+                <tr><td colspan="6">No EC2 patch snapshots yet. Check AWS/SSM access and scheduled collection.</td></tr>
+            @endforelse
+            @foreach ($report['servers'] as $server)
+                <tr><td><strong>{{ $server->name }}</strong><br><small>Agent-reported server</small></td><td>{{ $server->total_updates ?? 'Unknown' }}</td><td>{{ $server->security_updates ?? 'Unknown' }}</td><td style="white-space:pre-line">{{ $server->update_details ?: 'Not reported' }}</td><td style="white-space:pre-line">{{ $server->security_update_details ?: 'Not reported' }}</td><td>{{ $server->last_reported_at?->format('j M Y, H:i') ?? 'Never' }}</td></tr>
+            @endforeach
+        </tbody></table></div>
+        <h3 style="margin-top:22px">Recent patch history · last 30 days</h3>
+        <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Fix observed at</th><th>Server</th><th>Source</th><th>Resolved patches and update details</th></tr></thead><tbody>
+            @forelse ($report['patch_history'] as $event)
+                <tr>
+                    <td>{{ $event['at']->format('j M Y, H:i:s T') }}</td>
+                    <td>{{ $event['server'] }}@if ($event['region'])<br><small>{{ $event['region'] }}</small>@endif</td>
+                    <td><span class="report-tag">{{ $event['source'] }}</span></td>
+                    <td>
+                        <div class="patch-details-preview">{{ \Illuminate\Support\Str::limit($event['summary'], 110) }}</div>
+                        @if ($event['details'])<small class="patch-details-preview" style="display:block">{{ \Illuminate\Support\Str::limit($event['details'], 100) }}</small>@endif
+                        <button type="button" class="patch-details-more" data-open-patch-details="patch-details-{{ $loop->index }}" aria-haspopup="dialog" aria-controls="patch-details-{{ $loop->index }}">View more</button>
+                    </td>
+                </tr>
+            @empty
+                <tr><td colspan="4">No patch fixes have been observed in the last 30 days.</td></tr>
+            @endforelse
+        </tbody></table></div>
+        <div class="report-pagination" data-pagination-controls aria-label="Server patch history pagination"><button type="button" data-page-previous aria-label="Previous server patch history page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next server patch history page">Next</button></div>
+        @foreach ($report['patch_history'] as $event)
+            <dialog id="patch-details-{{ $loop->index }}" class="patch-details-dialog" aria-labelledby="patch-details-title-{{ $loop->index }}">
+                <h3 id="patch-details-title-{{ $loop->index }}">{{ $event['server'] }}</h3>
+                <p class="muted">{{ $event['at']->format('j M Y, H:i:s T') }} &middot; {{ $event['source'] }}{{ $event['region'] ? ' · '.$event['region'] : '' }}</p>
+                <p class="patch-details-text">{{ $event['summary'] }}</p>
+                @if ($event['details'])<div class="patch-details-text">{{ $event['details'] }}</div>@endif
+                <div class="patch-details-actions"><button type="button" data-close-patch-details autofocus>Close</button></div>
+            </dialog>
+        @endforeach
+        <p class="report-note" style="margin-top:10px">Times show when a report first observed fewer pending patches, not when updates became available. These are inferred fixes, not verified installation timestamps: the change occurred between checks. Package details are shown when a previously reported pending list has fully cleared; partial reductions cannot identify individual installed packages. Initial, unchanged and increased pending counts are excluded.</p>
     </section>
 
     <section class="panel report-section">

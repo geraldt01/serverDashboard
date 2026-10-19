@@ -311,7 +311,7 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Age')
             ->assertSee('First observed at')
             ->assertSee('41 days')
-            ->assertSee('<th>Exploit</th><th>Age</th><th>First observed at</th></tr>', false)
+            ->assertSee('<th>Fix available</th><th>Age</th><th>First observed at</th></tr>', false)
             ->assertSee('inspector-machine-filter', false)
             ->assertSee('data-inspector-severity="CRITICAL"', false)
             ->assertSee('data-inspector-severity="HIGH"', false)
