@@ -43,6 +43,14 @@
     .inspector-coverage-value { display:block; margin-top:4px; color:#0875e1; font-size:36px; font-weight:300; line-height:1.15; }
     .inspector-coverage-total { color:#202633; font-size:12px; }
     .inspector-coverage-note { display:block; margin-top:5px; color:#736c88; font-size:11px; }
+    .inspector-coverage-link { display:block; margin:4px 0 0; padding:0; border:0; color:#0875e1; background:transparent; font-size:36px; font-weight:300; line-height:1.15; cursor:pointer; text-align:left; }
+    .inspector-coverage-link:hover { text-decoration:underline; }
+    .inspector-coverage-link:focus-visible { outline:2px solid #0875e1; outline-offset:2px; }
+    .inspector-coverage-link span { color:#202633; font-size:12px; font-weight:400; }
+    .inspector-machine-dialog { width:min(1200px,calc(100vw - 32px)); }
+    .inspector-machine-search { display:block; width:100%; box-sizing:border-box; margin:12px 0; padding:9px 11px; border:1px solid #9ba3b2; border-radius:3px; font:inherit; }
+    .inspector-machine-dialog .report-table table { min-width:900px; }
+    .inspector-machine-empty { padding:12px; color:#736c88; }
     .report-tags { display:flex; flex-wrap:wrap; gap:7px; margin:10px 0 12px; }
     .report-tags .report-tag { cursor:pointer; }
     .report-tags .report-tag[aria-pressed="true"] { color:#fff; background:#0875e1; border-color:#0875e1; }
@@ -145,10 +153,39 @@
                 </div>
                 <div class="inspector-coverage-item">
                     <strong>Findings with fix available</strong>
-                    <span class="inspector-coverage-value">{{ number_format($packageCoverage['fix']['YES']) }}<span class="inspector-coverage-total"> / {{ number_format($packageCoverage['total']) }} total package findings</span></span>
+                    <button type="button" class="inspector-coverage-link" data-open-inspector-machines aria-haspopup="dialog" aria-controls="inspector-fix-machines-dialog">
+                        {{ number_format($packageCoverage['fix']['YES']) }}<span> / {{ number_format($packageCoverage['total']) }} total package findings</span>
+                    </button>
                     <span class="inspector-coverage-note">{{ number_format($packageCoverage['fix']['PARTIAL']) }} partial; {{ number_format($packageCoverage['fix']['NOT_REPORTED']) }} not reported by Inspector</span>
                 </div>
             </div>
+            <dialog id="inspector-fix-machines-dialog" class="patch-details-dialog inspector-machine-dialog" aria-labelledby="inspector-machines-title">
+                <h3 id="inspector-machines-title">Virtual machines with fixable Inspector findings</h3>
+                <p class="muted">{{ count($report['inspector']['fix_available_machines']) }} active virtual machine(s) have at least one package vulnerability finding with a fix available.</p>
+                <label for="inspector-machine-search">Filter virtual machines</label>
+                <input id="inspector-machine-search" class="inspector-machine-search" type="search" placeholder="Search by instance ID, name, OS, image, account, or region" autocomplete="off">
+                <div class="scroll report-table">
+                    <table><thead><tr><th>Virtual machine</th><th>Operating system</th><th>Machine image</th><th>Account</th><th>Cloud provider</th><th>Region</th><th>Critical</th><th>High</th><th>All</th></tr></thead><tbody>
+                        @forelse ($report['inspector']['fix_available_machines'] as $machine)
+                            <tr data-inspector-machine-row>
+                                <td><strong>{{ $machine['name'] }}</strong><br><small>{{ $machine['id'] }}</small></td>
+                                <td>{{ $machine['operating_system'] }}</td>
+                                <td>{{ $machine['image_id'] }}</td>
+                                <td>{{ $machine['account'] }}</td>
+                                <td>{{ $machine['cloud_provider'] }}</td>
+                                <td>{{ $machine['region'] }}</td>
+                                <td>{{ number_format($machine['critical']) }}</td>
+                                <td>{{ number_format($machine['high']) }}</td>
+                                <td>{{ number_format($machine['all']) }}</td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="9">No affected EC2 virtual machines were returned for active findings with a fix available.</td></tr>
+                        @endforelse
+                    </tbody></table>
+                </div>
+                <p class="inspector-machine-empty" data-inspector-machine-empty hidden>No virtual machines match that search.</p>
+                <div class="patch-details-actions"><button type="button" data-close-inspector-machines autofocus>Close</button></div>
+            </dialog>
             <p>{{ number_format($report['inspector']['total']) }} active package and code vulnerability finding(s) across {{ count($report['inspector']['regions']) }} queried region(s). Select a severity to filter the findings table.</p>
             <div class="report-tags" role="group" aria-label="Filter Inspector findings by severity">
                 <button type="button" class="report-tag" data-inspector-severity="ALL" aria-pressed="true">All {{ number_format($report['inspector']['total']) }}</button>
@@ -340,6 +377,36 @@
     document.querySelectorAll('[data-close-patch-details]').forEach((button) => {
         button.addEventListener('click', () => button.closest('dialog')?.close());
     });
+    const inspectorMachinesDialog = document.getElementById('inspector-fix-machines-dialog');
+    const inspectorMachineSearch = document.getElementById('inspector-machine-search');
+    if (inspectorMachinesDialog && inspectorMachineSearch) {
+        document.querySelectorAll('[data-open-inspector-machines]').forEach((button) => {
+            button.addEventListener('click', () => {
+                inspectorMachinesDialog.showModal();
+                inspectorMachineSearch.focus();
+            });
+        });
+        document.querySelectorAll('[data-close-inspector-machines]').forEach((button) => {
+            button.addEventListener('click', () => inspectorMachinesDialog.close());
+        });
+        inspectorMachineSearch.addEventListener('input', () => {
+            const query = inspectorMachineSearch.value.trim().toLocaleLowerCase();
+            const rows = Array.from(inspectorMachinesDialog.querySelectorAll('[data-inspector-machine-row]'));
+            let visibleCount = 0;
+
+            rows.forEach((row) => {
+                row.hidden = query !== '' && !row.textContent.toLocaleLowerCase().includes(query);
+                if (!row.hidden) visibleCount++;
+            });
+
+            const emptyMessage = inspectorMachinesDialog.querySelector('[data-inspector-machine-empty]');
+            if (emptyMessage) emptyMessage.hidden = visibleCount > 0 || rows.length === 0;
+        });
+        inspectorMachinesDialog.addEventListener('close', () => {
+            inspectorMachineSearch.value = '';
+            inspectorMachineSearch.dispatchEvent(new Event('input'));
+        });
+    }
     document.querySelectorAll('[data-report-pagination]').forEach((tableWrap) => {
         const rows = Array.from(tableWrap.querySelectorAll('tbody tr'));
         const controls = tableWrap.parentElement.querySelector('[data-pagination-controls]');

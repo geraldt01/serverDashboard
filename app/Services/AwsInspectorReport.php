@@ -81,6 +81,7 @@ class AwsInspectorReport
             $packageCoverage['exploit'][$finding['exploit_available']]++;
             $packageCoverage['fix'][$finding['fix_available']]++;
         }
+        $fixAvailableMachines = $this->fixAvailableMachines($findings);
 
         if ($queriedRegions === []) {
             return $this->unavailable($regions, 'Inspector findings could not be retrieved. Check AWS credentials, Inspector enablement, and inspector2:ListFindings permissions.');
@@ -97,6 +98,7 @@ class AwsInspectorReport
             'regions' => $queriedRegions,
             'failed_regions' => $failedRegions,
             'findings' => $findings,
+            'fix_available_machines' => $fixAvailableMachines,
             'counts' => $counts,
             'package_coverage' => $packageCoverage,
             'total' => count($findings),
@@ -107,6 +109,21 @@ class AwsInspectorReport
 
     private function formatFinding(array $finding, string $region): array
     {
+        $resources = array_map(function ($resource) use ($finding, $region) {
+            $instance = $resource['details']['awsEc2Instance'] ?? [];
+            $tags = $resource['tags'] ?? [];
+
+            return [
+                'id' => $resource['id'] ?? 'Unknown resource',
+                'type' => $resource['type'] ?? 'Unknown type',
+                'name' => $tags['Name'] ?? $resource['id'] ?? 'Unknown virtual machine',
+                'operating_system' => $instance['platform'] ?? 'Unknown',
+                'image_id' => $instance['imageId'] ?? 'Unknown',
+                'account' => $resource['providerAccountId'] ?? $finding['awsAccountId'] ?? 'Unknown',
+                'cloud_provider' => strtoupper($resource['provider'] ?? 'AWS'),
+                'region' => $resource['region'] ?? $region,
+            ];
+        }, $finding['resources'] ?? []);
         $resource = $finding['resources'][0] ?? [];
         $vulnerability = $finding['packageVulnerabilityDetails'] ?? [];
         $codeVulnerability = $finding['codeVulnerabilityDetails'] ?? [];
@@ -128,7 +145,52 @@ class AwsInspectorReport
             'exploit_available' => $this->availabilityStatus($finding['exploitAvailable'] ?? null),
             'fix_available' => $this->availabilityStatus($finding['fixAvailable'] ?? null),
             'first_observed_at' => $finding['firstObservedAt'] ?? null,
+            'finding_arn' => $finding['findingArn'] ?? null,
+            'resources' => $resources,
         ];
+    }
+
+    private function fixAvailableMachines(array $findings): array
+    {
+        $machines = [];
+
+        foreach ($findings as $finding) {
+            if ($finding['type'] !== 'PACKAGE_VULNERABILITY' || $finding['fix_available'] !== 'YES') {
+                continue;
+            }
+
+            $seenOnFinding = [];
+            foreach ($finding['resources'] as $resource) {
+                if ($resource['type'] !== 'AWS_EC2_INSTANCE') {
+                    continue;
+                }
+
+                $key = implode('|', [$resource['region'], $resource['account'], $resource['id']]);
+                if (isset($seenOnFinding[$key])) {
+                    continue;
+                }
+                $seenOnFinding[$key] = true;
+
+                if (! isset($machines[$key])) {
+                    $machines[$key] = $resource + [
+                        'critical' => 0,
+                        'high' => 0,
+                        'all' => 0,
+                    ];
+                }
+
+                $machines[$key]['all']++;
+                if ($finding['severity'] === 'CRITICAL') {
+                    $machines[$key]['critical']++;
+                } elseif ($finding['severity'] === 'HIGH') {
+                    $machines[$key]['high']++;
+                }
+            }
+        }
+
+        usort($machines, fn ($left, $right) => $right['all'] <=> $left['all']);
+
+        return array_values($machines);
     }
 
     private function availabilityStatus(?string $status): string
@@ -146,6 +208,7 @@ class AwsInspectorReport
             'regions' => [],
             'failed_regions' => $regions,
             'findings' => [],
+            'fix_available_machines' => [],
             'counts' => array_fill_keys(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL', 'UNTRIAGED'], 0),
             'package_coverage' => [
                 'total' => null,

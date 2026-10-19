@@ -152,10 +152,35 @@ class MonthlyReportTest extends TestCase
                 'severity' => 'CRITICAL',
                 'exploitAvailable' => 'YES',
                 'fixAvailable' => 'YES',
-                'resources' => [['id' => 'i-0123456789abcdef0', 'type' => 'AWS_EC2_INSTANCE', 'region' => 'ap-southeast-2']],
+                'resources' => [[
+                    'id' => 'i-0123456789abcdef0',
+                    'type' => 'AWS_EC2_INSTANCE',
+                    'region' => 'ap-southeast-2',
+                    'providerAccountId' => '123456789012',
+                    'tags' => ['Name' => 'Production VM'],
+                    'details' => ['awsEc2Instance' => ['platform' => 'UBUNTU_24_04', 'imageId' => 'ami-test-image']],
+                ]],
                 'packageVulnerabilityDetails' => [
                     'vulnerabilityId' => 'CVE-2026-1234',
                     'vulnerablePackages' => [['name' => 'openssl', 'fixedInVersion' => '3.0.15']],
+                ],
+            ], [
+                'title' => 'High package vulnerability',
+                'type' => 'PACKAGE_VULNERABILITY',
+                'severity' => 'HIGH',
+                'exploitAvailable' => 'NO',
+                'fixAvailable' => 'YES',
+                'resources' => [[
+                    'id' => 'i-0123456789abcdef0',
+                    'type' => 'AWS_EC2_INSTANCE',
+                    'region' => 'ap-southeast-2',
+                    'providerAccountId' => '123456789012',
+                    'tags' => ['Name' => 'Production VM'],
+                    'details' => ['awsEc2Instance' => ['platform' => 'UBUNTU_24_04', 'imageId' => 'ami-test-image']],
+                ]],
+                'packageVulnerabilityDetails' => [
+                    'vulnerabilityId' => 'CVE-2026-5678',
+                    'vulnerablePackages' => [['name' => 'curl', 'fixedInVersion' => '8.9.0']],
                 ],
             ], [
                 'title' => 'Code injection vulnerability',
@@ -173,19 +198,25 @@ class MonthlyReportTest extends TestCase
         $report = (new AwsInspectorReport($client))->build();
 
         $this->assertTrue($report['available']);
-        $this->assertSame(2, $report['total']);
+        $this->assertSame(3, $report['total']);
         $this->assertSame(1, $report['counts']['CRITICAL']);
-        $this->assertSame(1, $report['counts']['HIGH']);
+        $this->assertSame(2, $report['counts']['HIGH']);
         $this->assertSame('CVE-2026-1234', $report['findings'][0]['vulnerability_id']);
         $this->assertSame('openssl', $report['findings'][0]['packages']);
         $this->assertSame('3.0.15', $report['findings'][0]['fixed_versions']);
         $this->assertSame('YES', $report['findings'][0]['exploit_available']);
         $this->assertSame('YES', $report['findings'][0]['fix_available']);
-        $this->assertSame(1, $report['package_coverage']['total']);
+        $this->assertSame(2, $report['package_coverage']['total']);
         $this->assertSame(1, $report['package_coverage']['exploit']['YES']);
-        $this->assertSame(1, $report['package_coverage']['fix']['YES']);
-        $this->assertSame('CWE-89', $report['findings'][1]['vulnerability_id']);
-        $this->assertSame('SQL injection src/main.php', $report['findings'][1]['packages']);
+        $this->assertSame(2, $report['package_coverage']['fix']['YES']);
+        $this->assertSame('Production VM', $report['fix_available_machines'][0]['name']);
+        $this->assertSame('UBUNTU_24_04', $report['fix_available_machines'][0]['operating_system']);
+        $this->assertSame('ami-test-image', $report['fix_available_machines'][0]['image_id']);
+        $this->assertSame(1, $report['fix_available_machines'][0]['critical']);
+        $this->assertSame(1, $report['fix_available_machines'][0]['high']);
+        $this->assertSame(2, $report['fix_available_machines'][0]['all']);
+        $this->assertSame('CWE-89', $report['findings'][2]['vulnerability_id']);
+        $this->assertSame('SQL injection src/main.php', $report['findings'][2]['packages']);
     }
 
     public function test_inspector_coverage_tiles_show_reported_yes_partial_and_missing_counts(): void
@@ -222,6 +253,18 @@ class MonthlyReportTest extends TestCase
                     'region' => 'ap-southeast-2',
                 ],
             ],
+            'fix_available_machines' => [[
+                'id' => 'i-test',
+                'name' => 'Searchable VM',
+                'operating_system' => 'UBUNTU_24_04',
+                'image_id' => 'ami-test',
+                'account' => '123456789012',
+                'cloud_provider' => 'AWS',
+                'region' => 'ap-southeast-2',
+                'critical' => 1,
+                'high' => 0,
+                'all' => 1,
+            ]],
             'counts' => array_fill_keys(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL', 'UNTRIAGED'], 0),
             'package_coverage' => [
                 'total' => 454,
@@ -244,6 +287,12 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Findings with fix available')
             ->assertSee('408')
             ->assertSee('3 partial; 5 not reported by Inspector')
+            ->assertSee('data-open-inspector-machines', false)
+            ->assertSee('inspector-fix-machines-dialog')
+            ->assertSee('Filter virtual machines')
+            ->assertSee('Searchable VM')
+            ->assertSee('Operating system')
+            ->assertSee('Machine image')
             ->assertSee('data-inspector-severity="CRITICAL"', false)
             ->assertSee('data-inspector-severity="HIGH"', false)
             ->assertSee('data-severity="CRITICAL"', false)
