@@ -127,8 +127,9 @@
                 <div class="inspector-coverage-item">
                     <strong>Findings with fix available</strong>
                     <button type="button" class="inspector-coverage-link" data-open-inspector-machines aria-haspopup="dialog" aria-controls="inspector-fix-machines-dialog">
-                        {{ number_format($packageCoverage['fix']['YES']) }}<span> / {{ number_format($packageCoverage['total']) }} total package findings</span>
+                        {{ number_format($packageCoverage['fix']['YES']) }}
                     </button>
+                    <span class="inspector-coverage-total"> / {{ number_format($packageCoverage['total']) }} total package findings</span>
                     <span class="inspector-coverage-note">{{ number_format($packageCoverage['fix']['PARTIAL']) }} partial; {{ number_format($packageCoverage['fix']['NOT_REPORTED']) }} not reported by Inspector</span>
                 </div>
             </div>

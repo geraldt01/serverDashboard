@@ -66,7 +66,8 @@ class MonthlyReportTest extends TestCase
         $this->assertStringNotContainsString('newly available package', $history[0]['details']);
 
         $settings = MonthlyReportSetting::current();
-        $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
+        $response = $this->get(route('monthly-reports.public', ['token' => $settings->public_token]));
+        $response
             ->assertOk()
             ->assertSee('Fix observed at')
             ->assertSee('View more')
@@ -299,7 +300,8 @@ class MonthlyReportTest extends TestCase
         $this->app->instance(AwsInspectorReport::class, $inspectorReport);
         $settings = MonthlyReportSetting::current();
 
-        $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
+        $response = $this->get(route('monthly-reports.public', ['token' => $settings->public_token]));
+        $response
             ->assertOk()
             ->assertSee('Findings with public exploit available')
             ->assertSee('112')
@@ -334,6 +336,10 @@ class MonthlyReportTest extends TestCase
             ->assertSee('data-severity="CRITICAL"', false)
             ->assertSee('data-severity="HIGH"', false)
             ->assertSee('data-inspector-filter-empty', false);
+
+        preg_match('~<button\b(?=[^>]*data-open-inspector-machines)[^>]*>(.*?)</button>~s', $response->getContent(), $buttonMatch);
+        $buttonText = preg_replace('/\s+/', '', strip_tags($buttonMatch[1] ?? ''));
+        $this->assertSame('408', $buttonText);
     }
 
     public function test_admin_can_change_the_manager_email_and_rotate_the_report_link(): void
