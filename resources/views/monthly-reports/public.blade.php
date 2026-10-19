@@ -191,6 +191,7 @@
                 <div class="patch-details-actions"><button type="button" data-close-inspector-machines autofocus>Close</button></div>
             </dialog>
             <p>{{ number_format($report['inspector']['total']) }} active package and code vulnerability finding(s) across {{ count($report['inspector']['regions']) }} queried region(s). Select a severity to filter the findings table.</p>
+            <p class="inspector-machine-filter-status" data-inspector-machine-filter-status hidden>Showing findings for <strong data-inspector-selected-machine-name></strong><button type="button" data-clear-inspector-machine>Clear machine filter</button></p>
             <div class="report-tags" role="group" aria-label="Filter Inspector findings by severity">
                 <button type="button" class="report-tag" data-inspector-severity="ALL" aria-pressed="true">All {{ number_format($report['inspector']['total']) }}</button>
                 @foreach ($report['inspector']['counts'] as $severity => $count)
@@ -212,7 +213,6 @@
                     @endforeach
                 </tbody></table></div>
                 <div class="report-pagination" data-pagination-controls aria-label="Amazon Inspector findings pagination"><button type="button" data-page-previous aria-label="Previous Inspector findings page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next Inspector findings page">Next</button></div>
-                <p class="inspector-machine-filter-status" data-inspector-machine-filter-status hidden>Showing findings for <strong data-inspector-selected-machine-name></strong><button type="button" data-clear-inspector-machine>Clear machine filter</button></p>
                 <p class="inspector-filter-empty" data-inspector-filter-empty hidden>No findings match this severity.</p>
             @else
                 <p class="muted">No active package or code vulnerability findings were returned for the configured regions.</p>
