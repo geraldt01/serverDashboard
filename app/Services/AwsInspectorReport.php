@@ -134,6 +134,20 @@ class AwsInspectorReport
         $packages = $vulnerability['vulnerablePackages'] ?? [];
         $packageNames = array_map(fn ($package) => $package['name'] ?? 'Unknown package', $packages);
         $fixedVersions = array_values(array_filter(array_map(fn ($package) => $package['fixedInVersion'] ?? null, $packages)));
+        $packageDetails = array_map(fn ($package) => [
+            'name' => $package['name'] ?? 'Unknown package',
+            'version' => $package['version'] ?? 'Unknown',
+            'fixed_in_version' => $package['fixedInVersion'] ?? null,
+            'package_manager' => $package['packageManager'] ?? null,
+            'file_path' => $package['filePath'] ?? null,
+            'remediation' => $package['remediation'] ?? null,
+        ], $packages);
+        $cvss = array_map(fn ($score) => [
+            'score' => $score['baseScore'] ?? null,
+            'version' => $score['version'] ?? null,
+            'source' => $score['source'] ?? null,
+            'vector' => $score['scoringVector'] ?? null,
+        ], $vulnerability['cvss'] ?? []);
         $codeLocation = trim(($codeVulnerability['detectorName'] ?? '').' '.($codeVulnerability['filePath'] ?? ''));
         $firstObservedAt = isset($finding['firstObservedAt'])
             ? CarbonImmutable::parse($finding['firstObservedAt'])->timezone(config('app.timezone'))
@@ -144,6 +158,7 @@ class AwsInspectorReport
 
         return [
             'title' => $finding['title'] ?? 'Untitled vulnerability finding',
+            'description' => $finding['description'] ?? null,
             'type' => strtoupper($finding['type'] ?? 'VULNERABILITY'),
             'severity' => strtoupper($finding['severity'] ?? 'UNTRIAGED'),
             'resource' => $resource['id'] ?? 'Unknown resource',
@@ -152,9 +167,20 @@ class AwsInspectorReport
             'vulnerability_id' => $vulnerability['vulnerabilityId'] ?? implode(', ', $codeVulnerability['cwes'] ?? []),
             'packages' => implode(', ', array_slice($packageNames, 0, 3)) ?: ($codeLocation ?: 'Not provided'),
             'fixed_versions' => implode(', ', array_slice($fixedVersions, 0, 3)),
+            'package_details' => $packageDetails,
+            'remediation' => $finding['remediation']['recommendation']['text'] ?? null,
+            'remediation_url' => $finding['remediation']['recommendation']['Url'] ?? null,
+            'inspector_score' => $finding['inspectorScore'] ?? null,
+            'cvss' => $cvss,
+            'vulnerability_source' => $vulnerability['source'] ?? null,
+            'vulnerability_source_url' => $vulnerability['sourceUrl'] ?? null,
+            'reference_urls' => $vulnerability['referenceUrls'] ?? [],
+            'related_vulnerabilities' => array_values(array_filter(array_map(fn ($related) => $related['vulnerabilityId'] ?? null, $vulnerability['relatedVulnerabilities'] ?? []))),
+            'cwes' => $codeVulnerability['cwes'] ?? [],
             'exploit_available' => $this->availabilityStatus($finding['exploitAvailable'] ?? null),
             'fix_available' => $this->availabilityStatus($finding['fixAvailable'] ?? null),
             'first_observed_at' => $firstObservedAt,
+            'first_observed_at_display' => $firstObservedAt?->format('j M Y, H:i T'),
             'age_days' => $ageDays,
             'finding_arn' => $finding['findingArn'] ?? null,
             'resources' => $resources,

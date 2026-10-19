@@ -150,6 +150,9 @@ class MonthlyReportTest extends TestCase
                 'title' => 'Critical operating system vulnerability',
                 'type' => 'PACKAGE_VULNERABILITY',
                 'severity' => 'CRITICAL',
+                'description' => 'A remote attacker may execute arbitrary code in the affected package.',
+                'remediation' => ['recommendation' => ['text' => 'Upgrade the installed package to the fixed version.', 'Url' => 'https://example.test/security/advisory']],
+                'inspectorScore' => 9.6,
                 'firstObservedAt' => now()->subDays(41)->toIso8601String(),
                 'exploitAvailable' => 'YES',
                 'fixAvailable' => 'YES',
@@ -163,6 +166,8 @@ class MonthlyReportTest extends TestCase
                 ]],
                 'packageVulnerabilityDetails' => [
                     'vulnerabilityId' => 'CVE-2026-1234',
+                    'source' => 'NVD',
+                    'cvss' => [['baseScore' => 9.8, 'version' => '3.1', 'source' => 'NVD', 'scoringVector' => 'CVSS:3.1/AV:N/AC:L']],
                     'vulnerablePackages' => [['name' => 'openssl', 'fixedInVersion' => '3.0.15']],
                 ],
             ], [
@@ -209,6 +214,10 @@ class MonthlyReportTest extends TestCase
         $this->assertSame('YES', $report['findings'][0]['fix_available']);
         $this->assertSame(41, $report['findings'][0]['age_days']);
         $this->assertTrue($report['findings'][0]['first_observed_at']->isSameDay(now()->subDays(41)));
+        $this->assertSame('A remote attacker may execute arbitrary code in the affected package.', $report['findings'][0]['description']);
+        $this->assertSame('Upgrade the installed package to the fixed version.', $report['findings'][0]['remediation']);
+        $this->assertSame(9.6, $report['findings'][0]['inspector_score']);
+        $this->assertSame(9.8, $report['findings'][0]['cvss'][0]['score']);
         $this->assertSame(2, $report['package_coverage']['total']);
         $this->assertSame(1, $report['package_coverage']['exploit']['YES']);
         $this->assertSame(2, $report['package_coverage']['fix']['YES']);
@@ -308,6 +317,13 @@ class MonthlyReportTest extends TestCase
             ->assertSee('data-inspector-machine-select', false)
             ->assertSee('data-machine-key="ap-southeast-2|123456789012|i-test"', false)
             ->assertSee('data-machine-keys="ap-southeast-2|123456789012|i-test"', false)
+            ->assertSee('data-inspector-finding-index="0"', false)
+            ->assertSee('role="button" aria-haspopup="dialog"', false)
+            ->assertSee('id="inspector-finding-dialog"', false)
+            ->assertSee('Finding description')
+            ->assertSee('Vulnerable packages')
+            ->assertSee('CVSS scores')
+            ->assertSee('inspectorFindings', false)
             ->assertSee('Age')
             ->assertSee('First observed at')
             ->assertSee('41 days')

@@ -55,6 +55,18 @@
     .inspector-machine-select:hover, .inspector-machine-select:focus { outline:2px solid #0875e1; outline-offset:-2px; }
     .inspector-machine-filter-status { margin:8px 0; color:#62546b; font-size:12px; }
     .inspector-machine-filter-status button { margin-left:8px; padding:3px 7px; font-size:11px; }
+    .inspector-finding-row { cursor:pointer; }
+    .inspector-finding-row:focus-visible { outline:2px solid #0875e1; outline-offset:-2px; }
+    .inspector-finding-dialog { width:min(900px,calc(100vw - 32px)); }
+    .inspector-detail-section { margin-top:18px; }
+    .inspector-detail-section h4 { margin:0 0 8px; padding:7px 9px; background:#eeeef1; font-size:13px; }
+    .inspector-detail-section p { line-height:1.5; overflow-wrap:anywhere; }
+    .inspector-detail-meta { display:grid; grid-template-columns:minmax(130px, .8fr) 2fr; margin:0; }
+    .inspector-detail-meta dt, .inspector-detail-meta dd { margin:0; padding:7px 9px; border-bottom:1px solid #e5e3e9; overflow-wrap:anywhere; }
+    .inspector-detail-meta dt { font-weight:700; }
+    .inspector-detail-dialog table { width:100%; border-collapse:collapse; }
+    .inspector-detail-dialog th, .inspector-detail-dialog td { padding:7px 9px; border-bottom:1px solid #e5e3e9; text-align:left; vertical-align:top; overflow-wrap:anywhere; }
+    @media(max-width:600px) { .inspector-detail-meta { grid-template-columns:1fr; } .inspector-detail-meta dt { border-bottom:0; padding-bottom:2px; } .inspector-detail-meta dd { padding-top:2px; } }
     .report-tags { display:flex; flex-wrap:wrap; gap:7px; margin:10px 0 12px; }
     .report-tags .report-tag { cursor:pointer; }
     .report-tags .report-tag[aria-pressed="true"] { color:#fff; background:#0875e1; border-color:#0875e1; }
@@ -158,7 +170,7 @@
             @if ($report['inspector']['findings'])
                 <div class="scroll report-table" data-report-pagination data-page-size="10" data-filter-buttons="[data-inspector-severity]" data-machine-filter-table><table><thead><tr><th>Severity</th><th>Finding / CVE</th><th>Resource</th><th>Package / code location</th><th>Fix available</th><th>Age</th><th>First observed at</th></tr></thead><tbody>
                     @foreach ($report['inspector']['findings'] as $finding)
-                        <tr data-severity="{{ $finding['severity'] }}" data-machine-keys="{{ implode('~', $finding['machine_keys']) }}">
+                        <tr class="inspector-finding-row" data-severity="{{ $finding['severity'] }}" data-machine-keys="{{ implode('~', $finding['machine_keys']) }}" data-inspector-finding-index="{{ $loop->index }}" tabindex="0" role="button" aria-haspopup="dialog" aria-label="View details for {{ $finding['title'] }}">
                             <td><span class="report-tag">{{ $finding['severity'] }}</span></td>
                             <td>{{ $finding['title'] }}<br><small>{{ $finding['vulnerability_id'] }}</small></td>
                             <td>{{ $finding['resource'] }}<br><small>{{ $finding['resource_type'] }}</small></td>
@@ -171,6 +183,54 @@
                 </tbody></table></div>
                 <div class="report-pagination" data-pagination-controls aria-label="Amazon Inspector findings pagination"><button type="button" data-page-previous aria-label="Previous Inspector findings page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next Inspector findings page">Next</button></div>
                 <p class="inspector-filter-empty" data-inspector-filter-empty hidden>No findings match this severity.</p>
+                <dialog id="inspector-finding-dialog" class="patch-details-dialog inspector-finding-dialog inspector-detail-dialog" aria-labelledby="inspector-finding-title">
+                    <h3 id="inspector-finding-title"></h3>
+                    <p class="muted" data-inspector-finding-subtitle></p>
+                    <div class="inspector-detail-section">
+                        <h4>Finding overview</h4>
+                        <dl class="inspector-detail-meta">
+                            <dt>Severity</dt><dd data-inspector-detail="severity"></dd>
+                            <dt>Type</dt><dd data-inspector-detail="type"></dd>
+                            <dt>Resource</dt><dd data-inspector-detail="resource"></dd>
+                            <dt>Account</dt><dd data-inspector-detail="account"></dd>
+                            <dt>Cloud provider</dt><dd data-inspector-detail="cloud_provider"></dd>
+                            <dt>Region</dt><dd data-inspector-detail="region"></dd>
+                            <dt>Fix available</dt><dd data-inspector-detail="fix_available"></dd>
+                            <dt>Public exploit available</dt><dd data-inspector-detail="exploit_available"></dd>
+                            <dt>Inspector score</dt><dd data-inspector-detail="inspector_score"></dd>
+                            <dt>First observed at</dt><dd data-inspector-detail="first_observed_at"></dd>
+                            <dt>Age</dt><dd data-inspector-detail="age"></dd>
+                        </dl>
+                    </div>
+                    <div class="inspector-detail-section" data-inspector-description-section>
+                        <h4>Finding description</h4>
+                        <p data-inspector-detail="description"></p>
+                    </div>
+                    <div class="inspector-detail-section" data-inspector-remediation-section>
+                        <h4>Remediation</h4>
+                        <p data-inspector-detail="remediation"></p>
+                        <a data-inspector-remediation-link target="_blank" rel="noopener noreferrer" hidden>Open remediation link</a>
+                    </div>
+                    <div class="inspector-detail-section" data-inspector-vulnerability-section>
+                        <h4>Vulnerability details</h4>
+                        <dl class="inspector-detail-meta">
+                            <dt>Vulnerability ID</dt><dd data-inspector-detail="vulnerability_id"></dd>
+                            <dt>Vulnerability source</dt><dd data-inspector-detail="vulnerability_source"></dd>
+                            <dt>Related vulnerabilities</dt><dd data-inspector-detail="related_vulnerabilities"></dd>
+                            <dt>Code weakness</dt><dd data-inspector-detail="cwes"></dd>
+                        </dl>
+                        <div data-inspector-reference-links></div>
+                    </div>
+                    <div class="inspector-detail-section" data-inspector-cvss-section>
+                        <h4>CVSS scores</h4>
+                        <div class="scroll"><table><thead><tr><th>Score</th><th>Version</th><th>Source</th><th>Scoring vector</th></tr></thead><tbody data-inspector-cvss-rows></tbody></table></div>
+                    </div>
+                    <div class="inspector-detail-section" data-inspector-packages-section>
+                        <h4>Vulnerable packages</h4>
+                        <div class="scroll"><table><thead><tr><th>Package</th><th>Installed version</th><th>Fixed version</th><th>Package manager</th><th>File path</th></tr></thead><tbody data-inspector-package-rows></tbody></table></div>
+                    </div>
+                    <div class="patch-details-actions"><button type="button" data-close-inspector-finding autofocus>Close</button></div>
+                </dialog>
             @else
                 <p class="muted">No active package or code vulnerability findings were returned for the configured regions.</p>
             @endif
@@ -427,6 +487,109 @@
             inspectorMachineSearch.value = '';
             inspectorMachineSearch.dispatchEvent(new Event('input'));
         });
+    }
+    const inspectorFindingDialog = document.getElementById('inspector-finding-dialog');
+    if (inspectorFindingDialog) {
+        const inspectorFindings = @json($report['inspector']['findings']);
+        const setDetail = (key, value) => {
+            const target = inspectorFindingDialog.querySelector(`[data-inspector-detail="${key}"]`);
+            if (target) target.textContent = value || 'Not provided';
+        };
+        const appendCells = (row, values) => {
+            values.forEach((value) => {
+                const cell = document.createElement('td');
+                cell.textContent = value || 'Not provided';
+                row.appendChild(cell);
+            });
+        };
+        const showInspectorFinding = (index) => {
+            const finding = inspectorFindings[index];
+            if (!finding) return;
+            const resource = finding.resources?.[0] || {};
+            const title = inspectorFindingDialog.querySelector('#inspector-finding-title');
+            const subtitle = inspectorFindingDialog.querySelector('[data-inspector-finding-subtitle]');
+            title.textContent = finding.title || 'Vulnerability finding';
+            subtitle.textContent = `Finding ID: ${finding.finding_arn || 'Not provided'}`;
+            setDetail('severity', finding.severity);
+            setDetail('type', finding.type);
+            setDetail('resource', `${resource.name || finding.resource || 'Unknown'} (${resource.id || finding.resource || 'Unknown'})`);
+            setDetail('account', resource.account);
+            setDetail('cloud_provider', resource.cloud_provider);
+            setDetail('region', resource.region || finding.region);
+            setDetail('fix_available', finding.fix_available);
+            setDetail('exploit_available', finding.exploit_available);
+            setDetail('inspector_score', finding.inspector_score === null || finding.inspector_score === undefined ? null : String(finding.inspector_score));
+            setDetail('first_observed_at', finding.first_observed_at_display);
+            setDetail('age', finding.age_days === null || finding.age_days === undefined ? null : `${finding.age_days} days`);
+            setDetail('description', finding.description);
+            setDetail('remediation', finding.remediation);
+            setDetail('vulnerability_id', finding.vulnerability_id);
+            setDetail('vulnerability_source', finding.vulnerability_source);
+            setDetail('related_vulnerabilities', (finding.related_vulnerabilities || []).join(', '));
+            setDetail('cwes', (finding.cwes || []).join(', '));
+
+            const referenceLinks = inspectorFindingDialog.querySelector('[data-inspector-reference-links]');
+            referenceLinks.replaceChildren();
+            const urls = [...(finding.vulnerability_source_url ? [finding.vulnerability_source_url] : []), ...(finding.reference_urls || [])];
+            [...new Set(urls)].forEach((value) => {
+                try {
+                    const parsedUrl = new URL(value);
+                    if (parsedUrl.protocol !== 'https:') return;
+                    const link = document.createElement('a');
+                    link.href = parsedUrl.href;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.textContent = parsedUrl.hostname;
+                    link.style.marginRight = '10px';
+                    referenceLinks.appendChild(link);
+                } catch (_) {
+                    return;
+                }
+            });
+
+            const remediationLink = inspectorFindingDialog.querySelector('[data-inspector-remediation-link]');
+            let remediationUrl = null;
+            try {
+                const parsedUrl = new URL(finding.remediation_url || '');
+                if (parsedUrl.protocol === 'https:') remediationUrl = parsedUrl.href;
+            } catch (_) {
+                remediationUrl = null;
+            }
+            remediationLink.hidden = !remediationUrl;
+            remediationLink.href = remediationUrl || '#';
+
+            const cvssRows = inspectorFindingDialog.querySelector('[data-inspector-cvss-rows]');
+            cvssRows.replaceChildren();
+            (finding.cvss || []).forEach((score) => {
+                const row = document.createElement('tr');
+                appendCells(row, [score.score === null ? null : String(score.score), score.version, score.source, score.vector]);
+                cvssRows.appendChild(row);
+            });
+            inspectorFindingDialog.querySelector('[data-inspector-cvss-section]').hidden = !(finding.cvss || []).length;
+
+            const packageRows = inspectorFindingDialog.querySelector('[data-inspector-package-rows]');
+            packageRows.replaceChildren();
+            (finding.package_details || []).forEach((packageInfo) => {
+                const row = document.createElement('tr');
+                appendCells(row, [packageInfo.name, packageInfo.version, packageInfo.fixed_in_version, packageInfo.package_manager, packageInfo.file_path]);
+                packageRows.appendChild(row);
+            });
+            inspectorFindingDialog.querySelector('[data-inspector-packages-section]').hidden = !(finding.package_details || []).length;
+            inspectorFindingDialog.querySelector('[data-inspector-description-section]').hidden = !finding.description;
+            inspectorFindingDialog.querySelector('[data-inspector-remediation-section]').hidden = !finding.remediation && !remediationUrl;
+            inspectorFindingDialog.showModal();
+        };
+
+        document.querySelectorAll('[data-inspector-finding-index]').forEach((row) => {
+            row.addEventListener('click', () => showInspectorFinding(Number(row.dataset.inspectorFindingIndex)));
+            row.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    showInspectorFinding(Number(row.dataset.inspectorFindingIndex));
+                }
+            });
+        });
+        inspectorFindingDialog.querySelector('[data-close-inspector-finding]')?.addEventListener('click', () => inspectorFindingDialog.close());
     }
     document.querySelectorAll('[data-report-pagination]').forEach((tableWrap) => {
         const rows = Array.from(tableWrap.querySelectorAll('tbody tr'));
