@@ -215,6 +215,8 @@ class MonthlyReportTest extends TestCase
         $this->assertSame(1, $report['fix_available_machines'][0]['critical']);
         $this->assertSame(1, $report['fix_available_machines'][0]['high']);
         $this->assertSame(2, $report['fix_available_machines'][0]['all']);
+        $this->assertSame(['ap-southeast-2|123456789012|i-0123456789abcdef0'], $report['findings'][0]['machine_keys']);
+        $this->assertSame('ap-southeast-2|123456789012|i-0123456789abcdef0', $report['fix_available_machines'][0]['key']);
         $this->assertSame('CWE-89', $report['findings'][2]['vulnerability_id']);
         $this->assertSame('SQL injection src/main.php', $report['findings'][2]['packages']);
     }
@@ -239,6 +241,7 @@ class MonthlyReportTest extends TestCase
                     'fixed_versions' => '3.0.15',
                     'exploit_available' => 'YES',
                     'region' => 'ap-southeast-2',
+                    'machine_keys' => ['ap-southeast-2|123456789012|i-test'],
                 ],
                 [
                     'severity' => 'HIGH',
@@ -251,9 +254,11 @@ class MonthlyReportTest extends TestCase
                     'fixed_versions' => '',
                     'exploit_available' => 'NO',
                     'region' => 'ap-southeast-2',
+                    'machine_keys' => ['ap-southeast-2|123456789012|i-test-2'],
                 ],
             ],
             'fix_available_machines' => [[
+                'key' => 'ap-southeast-2|123456789012|i-test',
                 'id' => 'i-test',
                 'name' => 'Searchable VM',
                 'operating_system' => 'UBUNTU_24_04',
@@ -293,6 +298,10 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Searchable VM')
             ->assertSee('Operating system')
             ->assertSee('Machine image')
+            ->assertSee('data-inspector-machine-select', false)
+            ->assertSee('data-machine-key="ap-southeast-2|123456789012|i-test"', false)
+            ->assertSee('data-machine-keys="ap-southeast-2|123456789012|i-test"', false)
+            ->assertSee('inspector-machine-filter', false)
             ->assertSee('data-inspector-severity="CRITICAL"', false)
             ->assertSee('data-inspector-severity="HIGH"', false)
             ->assertSee('data-severity="CRITICAL"', false)

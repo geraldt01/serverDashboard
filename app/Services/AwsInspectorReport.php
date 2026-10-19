@@ -112,16 +112,20 @@ class AwsInspectorReport
         $resources = array_map(function ($resource) use ($finding, $region) {
             $instance = $resource['details']['awsEc2Instance'] ?? [];
             $tags = $resource['tags'] ?? [];
+            $resourceRegion = $resource['region'] ?? $region;
+            $resourceAccount = $resource['providerAccountId'] ?? $finding['awsAccountId'] ?? 'Unknown';
+            $resourceId = $resource['id'] ?? 'Unknown resource';
 
             return [
-                'id' => $resource['id'] ?? 'Unknown resource',
+                'id' => $resourceId,
                 'type' => $resource['type'] ?? 'Unknown type',
-                'name' => $tags['Name'] ?? $resource['id'] ?? 'Unknown virtual machine',
+                'name' => $tags['Name'] ?? $resourceId,
                 'operating_system' => $instance['platform'] ?? 'Unknown',
                 'image_id' => $instance['imageId'] ?? 'Unknown',
-                'account' => $resource['providerAccountId'] ?? $finding['awsAccountId'] ?? 'Unknown',
+                'account' => $resourceAccount,
                 'cloud_provider' => strtoupper($resource['provider'] ?? 'AWS'),
-                'region' => $resource['region'] ?? $region,
+                'region' => $resourceRegion,
+                'key' => implode('|', [$resourceRegion, $resourceAccount, $resourceId]),
             ];
         }, $finding['resources'] ?? []);
         $resource = $finding['resources'][0] ?? [];
@@ -147,6 +151,7 @@ class AwsInspectorReport
             'first_observed_at' => $finding['firstObservedAt'] ?? null,
             'finding_arn' => $finding['findingArn'] ?? null,
             'resources' => $resources,
+            'machine_keys' => array_values(array_unique(array_column(array_filter($resources, fn ($item) => $item['type'] === 'AWS_EC2_INSTANCE'), 'key'))),
         ];
     }
 
@@ -165,7 +170,7 @@ class AwsInspectorReport
                     continue;
                 }
 
-                $key = implode('|', [$resource['region'], $resource['account'], $resource['id']]);
+                $key = $resource['key'];
                 if (isset($seenOnFinding[$key])) {
                     continue;
                 }
@@ -173,6 +178,7 @@ class AwsInspectorReport
 
                 if (! isset($machines[$key])) {
                     $machines[$key] = $resource + [
+                        'key' => $key,
                         'critical' => 0,
                         'high' => 0,
                         'all' => 0,

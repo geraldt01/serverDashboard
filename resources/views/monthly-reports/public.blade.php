@@ -51,6 +51,10 @@
     .inspector-machine-search { display:block; width:100%; box-sizing:border-box; margin:12px 0; padding:9px 11px; border:1px solid #9ba3b2; border-radius:3px; font:inherit; }
     .inspector-machine-dialog .report-table table { min-width:900px; }
     .inspector-machine-empty { padding:12px; color:#736c88; }
+    .inspector-machine-select { cursor:pointer; }
+    .inspector-machine-select:hover, .inspector-machine-select:focus { outline:2px solid #0875e1; outline-offset:-2px; }
+    .inspector-machine-filter-status { margin:8px 0; color:#62546b; font-size:12px; }
+    .inspector-machine-filter-status button { margin-left:8px; padding:3px 7px; font-size:11px; }
     .report-tags { display:flex; flex-wrap:wrap; gap:7px; margin:10px 0 12px; }
     .report-tags .report-tag { cursor:pointer; }
     .report-tags .report-tag[aria-pressed="true"] { color:#fff; background:#0875e1; border-color:#0875e1; }
@@ -167,7 +171,7 @@
                 <div class="scroll report-table">
                     <table><thead><tr><th>Virtual machine</th><th>Operating system</th><th>Machine image</th><th>Account</th><th>Cloud provider</th><th>Region</th><th>Critical</th><th>High</th><th>All</th></tr></thead><tbody>
                         @forelse ($report['inspector']['fix_available_machines'] as $machine)
-                            <tr data-inspector-machine-row>
+                            <tr data-inspector-machine-row data-inspector-machine-select data-machine-key="{{ $machine['key'] }}" data-machine-name="{{ $machine['name'] }}" tabindex="0" role="button" aria-label="Show Inspector findings for {{ $machine['name'] }}">
                                 <td><strong>{{ $machine['name'] }}</strong><br><small>{{ $machine['id'] }}</small></td>
                                 <td>{{ $machine['operating_system'] }}</td>
                                 <td>{{ $machine['image_id'] }}</td>
@@ -194,9 +198,9 @@
                 @endforeach
             </div>
             @if ($report['inspector']['findings'])
-                <div class="scroll report-table" data-report-pagination data-page-size="10" data-filter-buttons="[data-inspector-severity]"><table><thead><tr><th>Severity</th><th>Finding / CVE</th><th>Resource</th><th>Package / code location</th><th>Fix available</th><th>Exploit</th><th>Region</th></tr></thead><tbody>
+                <div class="scroll report-table" data-report-pagination data-page-size="10" data-filter-buttons="[data-inspector-severity]" data-machine-filter-table><table><thead><tr><th>Severity</th><th>Finding / CVE</th><th>Resource</th><th>Package / code location</th><th>Fix available</th><th>Exploit</th><th>Region</th></tr></thead><tbody>
                     @foreach ($report['inspector']['findings'] as $finding)
-                        <tr data-severity="{{ $finding['severity'] }}">
+                        <tr data-severity="{{ $finding['severity'] }}" data-machine-keys="{{ implode('~', $finding['machine_keys']) }}">
                             <td><span class="report-tag">{{ $finding['severity'] }}</span></td>
                             <td>{{ $finding['title'] }}<br><small>{{ $finding['vulnerability_id'] }}</small></td>
                             <td>{{ $finding['resource'] }}<br><small>{{ $finding['resource_type'] }}</small></td>
@@ -208,6 +212,7 @@
                     @endforeach
                 </tbody></table></div>
                 <div class="report-pagination" data-pagination-controls aria-label="Amazon Inspector findings pagination"><button type="button" data-page-previous aria-label="Previous Inspector findings page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next Inspector findings page">Next</button></div>
+                <p class="inspector-machine-filter-status" data-inspector-machine-filter-status hidden>Showing findings for <strong data-inspector-selected-machine-name></strong><button type="button" data-clear-inspector-machine>Clear machine filter</button></p>
                 <p class="inspector-filter-empty" data-inspector-filter-empty hidden>No findings match this severity.</p>
             @else
                 <p class="muted">No active package or code vulnerability findings were returned for the configured regions.</p>
@@ -389,6 +394,22 @@
         document.querySelectorAll('[data-close-inspector-machines]').forEach((button) => {
             button.addEventListener('click', () => inspectorMachinesDialog.close());
         });
+        const selectMachine = (row) => {
+            const findingsTable = document.querySelector('[data-machine-filter-table]');
+            findingsTable?.dispatchEvent(new CustomEvent('inspector-machine-filter', {
+                detail: { key: row.dataset.machineKey, name: row.dataset.machineName },
+            }));
+            inspectorMachinesDialog.close();
+        };
+        inspectorMachinesDialog.querySelectorAll('[data-inspector-machine-select]').forEach((row) => {
+            row.addEventListener('click', () => selectMachine(row));
+            row.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    selectMachine(row);
+                }
+            });
+        });
         inspectorMachineSearch.addEventListener('input', () => {
             const query = inspectorMachineSearch.value.trim().toLocaleLowerCase();
             const rows = Array.from(inspectorMachinesDialog.querySelectorAll('[data-inspector-machine-row]'));
@@ -413,6 +434,9 @@
         const filterSelector = tableWrap.dataset.filterButtons;
         const filterButtons = filterSelector ? Array.from(tableWrap.parentElement.querySelectorAll(filterSelector)) : [];
         const emptyMessage = tableWrap.parentElement.querySelector('[data-inspector-filter-empty]');
+        const machineFilterStatus = tableWrap.parentElement.querySelector('[data-inspector-machine-filter-status]');
+        const selectedMachineName = tableWrap.parentElement.querySelector('[data-inspector-selected-machine-name]');
+        const clearMachineFilter = tableWrap.parentElement.querySelector('[data-clear-inspector-machine]');
         const pageSize = Number(tableWrap.dataset.pageSize) || 5;
 
         if (!controls || (rows.length <= pageSize && filterButtons.length === 0) || (rows.length === 1 && rows[0].querySelector('td[colspan]'))) {
@@ -425,10 +449,18 @@
         const next = controls.querySelector('[data-page-next]');
         let page = 0;
         let selectedSeverity = 'ALL';
+        let selectedMachineKey = null;
+        let pageCount = 1;
 
         const renderPage = () => {
-            const matchingRows = rows.filter((row) => selectedSeverity === 'ALL' || row.dataset.severity === selectedSeverity);
-            const pageCount = Math.max(1, Math.ceil(matchingRows.length / pageSize));
+            const matchingRows = rows.filter((row) => {
+                const severityMatches = selectedSeverity === 'ALL' || row.dataset.severity === selectedSeverity;
+                const machineKeys = row.dataset.machineKeys ? row.dataset.machineKeys.split('~') : [];
+                const machineMatches = selectedMachineKey === null || machineKeys.includes(selectedMachineKey);
+
+                return severityMatches && machineMatches;
+            });
+            pageCount = Math.max(1, Math.ceil(matchingRows.length / pageSize));
             page = Math.min(page, pageCount - 1);
             const visibleRows = new Set(matchingRows.slice(page * pageSize, (page + 1) * pageSize));
 
@@ -437,6 +469,9 @@
             });
             if (emptyMessage) {
                 emptyMessage.hidden = matchingRows.length > 0;
+                emptyMessage.textContent = selectedMachineKey !== null && selectedSeverity !== 'ALL'
+                    ? 'No findings match this virtual machine and severity.'
+                    : (selectedMachineKey !== null ? 'No findings match this virtual machine.' : 'No findings match this severity.');
             }
             status.textContent = filterButtons.length
                 ? (matchingRows.length === 0 ? 'No findings for this severity' : `Page ${page + 1} of ${pageCount} · ${matchingRows.length} findings`)
@@ -444,6 +479,9 @@
             previous.disabled = page === 0;
             next.disabled = page === pageCount - 1;
             controls.hidden = matchingRows.length <= pageSize;
+            if (machineFilterStatus) {
+                machineFilterStatus.hidden = selectedMachineKey === null;
+            }
             filterButtons.forEach((button) => {
                 const isSelected = button.dataset.inspectorSeverity === selectedSeverity;
                 button.setAttribute('aria-pressed', String(isSelected));
@@ -456,6 +494,18 @@
                 page = 0;
                 renderPage();
             });
+        });
+        tableWrap.addEventListener('inspector-machine-filter', (event) => {
+            selectedMachineKey = event.detail?.key ?? null;
+            if (selectedMachineName) selectedMachineName.textContent = event.detail?.name ?? '';
+            page = 0;
+            renderPage();
+        });
+        clearMachineFilter?.addEventListener('click', () => {
+            selectedMachineKey = null;
+            if (selectedMachineName) selectedMachineName.textContent = '';
+            page = 0;
+            renderPage();
         });
 
         previous.addEventListener('click', () => {
