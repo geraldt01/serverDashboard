@@ -135,6 +135,12 @@ class AwsInspectorReport
         $packageNames = array_map(fn ($package) => $package['name'] ?? 'Unknown package', $packages);
         $fixedVersions = array_values(array_filter(array_map(fn ($package) => $package['fixedInVersion'] ?? null, $packages)));
         $codeLocation = trim(($codeVulnerability['detectorName'] ?? '').' '.($codeVulnerability['filePath'] ?? ''));
+        $firstObservedAt = isset($finding['firstObservedAt'])
+            ? CarbonImmutable::parse($finding['firstObservedAt'])->timezone(config('app.timezone'))
+            : null;
+        $ageDays = $firstObservedAt
+            ? (int) $firstObservedAt->startOfDay()->diffInDays(CarbonImmutable::now(config('app.timezone'))->startOfDay())
+            : null;
 
         return [
             'title' => $finding['title'] ?? 'Untitled vulnerability finding',
@@ -148,7 +154,8 @@ class AwsInspectorReport
             'fixed_versions' => implode(', ', array_slice($fixedVersions, 0, 3)),
             'exploit_available' => $this->availabilityStatus($finding['exploitAvailable'] ?? null),
             'fix_available' => $this->availabilityStatus($finding['fixAvailable'] ?? null),
-            'first_observed_at' => $finding['firstObservedAt'] ?? null,
+            'first_observed_at' => $firstObservedAt,
+            'age_days' => $ageDays,
             'finding_arn' => $finding['findingArn'] ?? null,
             'resources' => $resources,
             'machine_keys' => array_values(array_unique(array_column(array_filter($resources, fn ($item) => $item['type'] === 'AWS_EC2_INSTANCE'), 'key'))),

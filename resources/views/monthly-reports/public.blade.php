@@ -199,7 +199,7 @@
                 @endforeach
             </div>
             @if ($report['inspector']['findings'])
-                <div class="scroll report-table" data-report-pagination data-page-size="10" data-filter-buttons="[data-inspector-severity]" data-machine-filter-table><table><thead><tr><th>Severity</th><th>Finding / CVE</th><th>Resource</th><th>Package / code location</th><th>Fix available</th><th>Exploit</th><th>Region</th></tr></thead><tbody>
+                <div class="scroll report-table" data-report-pagination data-page-size="10" data-filter-buttons="[data-inspector-severity]" data-machine-filter-table><table><thead><tr><th>Severity</th><th>Finding / CVE</th><th>Resource</th><th>Package / code location</th><th>Fix available</th><th>Exploit</th><th>Age</th><th>First observed at</th></tr></thead><tbody>
                     @foreach ($report['inspector']['findings'] as $finding)
                         <tr data-severity="{{ $finding['severity'] }}" data-machine-keys="{{ implode('~', $finding['machine_keys']) }}">
                             <td><span class="report-tag">{{ $finding['severity'] }}</span></td>
@@ -208,7 +208,8 @@
                             <td>{{ $finding['packages'] ?: 'Not provided' }}</td>
                             <td>{{ $finding['fix_available'] }}{{ $finding['fixed_versions'] ? ' · '.$finding['fixed_versions'] : '' }}</td>
                             <td>{{ $finding['exploit_available'] }}</td>
-                            <td>{{ $finding['region'] }}</td>
+                            <td>{{ ($finding['age_days'] ?? null) === null ? 'Unknown' : number_format($finding['age_days']).' days' }}</td>
+                            <td>{{ ($finding['first_observed_at'] ?? null)?->format('j M Y, H:i T') ?? 'Unknown' }}</td>
                         </tr>
                     @endforeach
                 </tbody></table></div>

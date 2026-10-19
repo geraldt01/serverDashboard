@@ -150,6 +150,7 @@ class MonthlyReportTest extends TestCase
                 'title' => 'Critical operating system vulnerability',
                 'type' => 'PACKAGE_VULNERABILITY',
                 'severity' => 'CRITICAL',
+                'firstObservedAt' => now()->subDays(41)->toIso8601String(),
                 'exploitAvailable' => 'YES',
                 'fixAvailable' => 'YES',
                 'resources' => [[
@@ -206,6 +207,8 @@ class MonthlyReportTest extends TestCase
         $this->assertSame('3.0.15', $report['findings'][0]['fixed_versions']);
         $this->assertSame('YES', $report['findings'][0]['exploit_available']);
         $this->assertSame('YES', $report['findings'][0]['fix_available']);
+        $this->assertSame(41, $report['findings'][0]['age_days']);
+        $this->assertTrue($report['findings'][0]['first_observed_at']->isSameDay(now()->subDays(41)));
         $this->assertSame(2, $report['package_coverage']['total']);
         $this->assertSame(1, $report['package_coverage']['exploit']['YES']);
         $this->assertSame(2, $report['package_coverage']['fix']['YES']);
@@ -242,6 +245,8 @@ class MonthlyReportTest extends TestCase
                     'exploit_available' => 'YES',
                     'region' => 'ap-southeast-2',
                     'machine_keys' => ['ap-southeast-2|123456789012|i-test'],
+                    'age_days' => 41,
+                    'first_observed_at' => now()->subDays(41),
                 ],
                 [
                     'severity' => 'HIGH',
@@ -255,6 +260,8 @@ class MonthlyReportTest extends TestCase
                     'exploit_available' => 'NO',
                     'region' => 'ap-southeast-2',
                     'machine_keys' => ['ap-southeast-2|123456789012|i-test-2'],
+                    'age_days' => 5,
+                    'first_observed_at' => now()->subDays(5),
                 ],
             ],
             'fix_available_machines' => [[
@@ -301,6 +308,10 @@ class MonthlyReportTest extends TestCase
             ->assertSee('data-inspector-machine-select', false)
             ->assertSee('data-machine-key="ap-southeast-2|123456789012|i-test"', false)
             ->assertSee('data-machine-keys="ap-southeast-2|123456789012|i-test"', false)
+            ->assertSee('Age')
+            ->assertSee('First observed at')
+            ->assertSee('41 days')
+            ->assertSee('<th>Exploit</th><th>Age</th><th>First observed at</th></tr>', false)
             ->assertSee('inspector-machine-filter', false)
             ->assertSee('data-inspector-severity="CRITICAL"', false)
             ->assertSee('data-inspector-severity="HIGH"', false)
