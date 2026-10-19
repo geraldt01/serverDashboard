@@ -43,7 +43,7 @@
     .inspector-coverage-value { display:block; margin-top:4px; color:#0875e1; font-size:36px; font-weight:300; line-height:1.15; }
     .inspector-coverage-total { color:#202633; font-size:12px; }
     .inspector-coverage-note { display:block; margin-top:5px; color:#736c88; font-size:11px; }
-    .inspector-coverage-link { display:block; margin:4px 0 0; padding:0; border:0; color:#0875e1; background:transparent; font-size:36px; font-weight:300; line-height:1.15; cursor:pointer; text-align:left; }
+    .inspector-coverage-link { display:inline-block; vertical-align:baseline; margin:4px 4px 0 0; padding:0; border:0; color:#0875e1; background:transparent; font-size:36px; font-weight:300; line-height:1.15; cursor:pointer; text-align:left; }
     .inspector-coverage-link:hover { text-decoration:underline; }
     .inspector-coverage-link:focus-visible { outline:2px solid #0875e1; outline-offset:2px; }
     .inspector-coverage-link span { color:#202633; font-size:12px; font-weight:400; }
