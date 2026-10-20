@@ -33,6 +33,7 @@ class MonthlyReportTest extends TestCase
             'slug' => 'patch-history-server',
             'monitor_token' => hash('sha256', 'patch-history-token'),
             'is_active' => true,
+            'update_details' => "openssl upgrade\nca-certificates update",
         ]);
         $baseline = [
             'other_server_id' => $server->id,
@@ -72,6 +73,8 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Fix observed at')
             ->assertSee('View more')
             ->assertSee('data-open-patch-details="patch-details-0"', false)
+            ->assertSee('data-open-patch-details="current-update-details-'.$server->id.'"', false)
+            ->assertSee('<dialog id="current-update-details-'.$server->id.'"', false)
             ->assertSee('<dialog id="patch-details-0"', false)
             ->assertSee('data-close-patch-details', false)
             ->assertSee($resolvedAt->format('j M Y, H:i:s T'))

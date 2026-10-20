@@ -251,9 +251,25 @@
                 <tr><td colspan="6">No EC2 patch snapshots yet. Check AWS/SSM access and scheduled collection.</td></tr>
             @endforelse
             @foreach ($report['servers'] as $server)
-                <tr><td><strong>{{ $server->name }}</strong><br><small>Agent-reported server</small></td><td>{{ $server->total_updates ?? 'Unknown' }}</td><td>{{ $server->security_updates ?? 'Unknown' }}</td><td style="white-space:pre-line">{{ $server->update_details ?: 'Not reported' }}</td><td style="white-space:pre-line">{{ $server->security_update_details ?: 'Not reported' }}</td><td>{{ $server->last_reported_at?->format('j M Y, H:i') ?? 'Never' }}</td></tr>
+                <tr><td><strong>{{ $server->name }}</strong><br><small>Agent-reported server</small></td><td>{{ $server->total_updates ?? 'Unknown' }}</td><td>{{ $server->security_updates ?? 'Unknown' }}</td><td>
+                    @if ($server->update_details)
+                        <div class="patch-details-preview">{{ \Illuminate\Support\Str::limit($server->update_details, 100) }}</div>
+                        <button type="button" class="patch-details-more" data-open-patch-details="current-update-details-{{ $server->id }}" aria-haspopup="dialog" aria-controls="current-update-details-{{ $server->id }}">View more</button>
+                    @else
+                        Not reported
+                    @endif
+                </td><td style="white-space:pre-line">{{ $server->security_update_details ?: 'Not reported' }}</td><td>{{ $server->last_reported_at?->format('j M Y, H:i') ?? 'Never' }}</td></tr>
             @endforeach
         </tbody></table></div>
+        @foreach ($report['servers'] as $server)
+            @if ($server->update_details)
+                <dialog id="current-update-details-{{ $server->id }}" class="patch-details-dialog" aria-labelledby="current-update-details-title-{{ $server->id }}">
+                    <h3 id="current-update-details-title-{{ $server->id }}">{{ $server->name }} · Pending update details</h3>
+                    <div class="patch-details-text">{{ $server->update_details }}</div>
+                    <div class="patch-details-actions"><button type="button" data-close-patch-details autofocus>Close</button></div>
+                </dialog>
+            @endif
+        @endforeach
         <h3 style="margin-top:22px">Recent patch history · last 30 days</h3>
         <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Fix observed at</th><th>Server</th><th>Source</th><th>Resolved patches and update details</th></tr></thead><tbody>
             @forelse ($report['patch_history'] as $event)
