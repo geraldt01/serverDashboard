@@ -129,7 +129,7 @@ class MonthlyReportTest extends TestCase
             ->assertHeader('X-Robots-Tag', 'noindex, nofollow')
             ->assertHeader('Referrer-Policy', 'no-referrer')
             ->assertSee('IT &amp; Security Report', false)
-            ->assertSee('AWS cost breakdown')
+            ->assertSee('AWS monthly cost forecast')
             ->assertSee('Backup policy')
             ->assertSee('Config App change log')
             ->assertSee('Systems, access and operating guide');
@@ -380,21 +380,25 @@ class MonthlyReportTest extends TestCase
         $this->assertSame('2026-10-01', $period['end']->toDateString());
     }
 
-    public function test_public_report_paginates_service_costs_and_limits_the_chart_legend_to_five(): void
+    public function test_public_report_shows_monthly_cost_forecast_details(): void
     {
         $settings = MonthlyReportSetting::current();
         $costReport = \Mockery::mock(AwsCostReport::class);
         $costReport->shouldReceive('build')->once()->andReturn([
             'available' => true,
-            'labels' => ['Apr 2026', 'May 2026'],
-            'services' => collect(range(1, 7))->map(fn ($number) => [
-                'name' => $number === 1 ? 'EC2 - Compute' : 'Service '.$number,
-                'data' => [120.5 / $number, 98.25 / $number],
-                'color' => '#5279df',
-            ])->all(),
+            'labels' => ['Oct 2026'],
+            'services' => [[
+                'name' => 'Projected monthly cost',
+                'data' => [218.75],
+                'color' => '#357b91',
+            ]],
             'total' => 218.75,
+            'actual_to_date' => 100.00,
+            'forecast_remaining' => 118.75,
+            'lower_bound' => 190.00,
+            'upper_bound' => 240.00,
             'unit' => 'USD',
-            'range_label' => 'Last 6 months + current month to date',
+            'range_label' => 'October 2026 monthly forecast',
             'refreshed_at' => now(),
             'data_note' => 'Fetched live. AWS billing data is not real-time and may be delayed.',
         ]);
@@ -403,12 +407,10 @@ class MonthlyReportTest extends TestCase
         $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
             ->assertOk()
             ->assertSee('aws-cost-chart')
-            ->assertSee('Total cost: 218.75 USD')
-            ->assertSee('Grouped by AWS service')
-            ->assertSee('EC2 - Compute')
-            ->assertSee('data-page-size="5"', false)
-            ->assertSee('AWS service cost table pagination')
-            ->assertSee('legendItem.index < 5', false)
+            ->assertSee('Projected monthly cost: 218.75 USD')
+            ->assertSee('Actual cost to date')
+            ->assertSee('Forecast for remaining days')
+            ->assertSee('80% prediction interval')
             ->assertSee('Refresh costs')
             ->assertSee('not real-time');
     }
@@ -435,6 +437,69 @@ class MonthlyReportTest extends TestCase
             ->assertSee($today->subMonth()->format('F Y').' changes')
             ->assertSee($today->format('F Y').' so far')
             ->assertSee('Production change ticket');
+    }
+
+    public function test_current_wordpress_findings_use_the_latest_report_not_the_selected_month_snapshot(): void
+    {
+        $site = WordpressSite::forceCreate([
+            'name' => 'Current status site',
+            'slug' => 'current-status-site',
+            'url' => 'https://current-status.example',
+            'monitor_token' => hash('sha256', 'current-status-token'),
+            'is_active' => true,
+        ]);
+        $reportMonth = CarbonImmutable::now()->startOfMonth();
+        $monthOutdatedAt = $reportMonth->subDays(10);
+
+        WordpressPluginUpdate::create([
+            'wordpress_site_id' => $site->id,
+            'site_name' => $site->name,
+            'plugin_name' => 'Updated plugin',
+            'current_version' => '1.0.0',
+            'latest_version' => '1.1.0',
+            'status' => 'outdated',
+            'checked_at' => $monthOutdatedAt,
+        ]);
+        WordpressPluginUpdate::create([
+            'wordpress_site_id' => $site->id,
+            'site_name' => $site->name,
+            'plugin_name' => 'Updated plugin',
+            'current_version' => '1.1.0',
+            'latest_version' => '1.1.0',
+            'status' => 'up_to_date',
+            'checked_at' => CarbonImmutable::now(),
+        ]);
+        WordpressPluginUpdate::create([
+            'wordpress_site_id' => $site->id,
+            'site_name' => $site->name,
+            'plugin_name' => 'Still outdated plugin',
+            'current_version' => '2.0.0',
+            'latest_version' => '2.1.0',
+            'status' => 'outdated',
+            'checked_at' => CarbonImmutable::now(),
+        ]);
+        WordpressCoreUpdate::create([
+            'wordpress_site_id' => $site->id,
+            'site_name' => $site->name,
+            'current_version' => '6.7.0',
+            'latest_version' => '6.8.0',
+            'status' => 'outdated',
+            'checked_at' => $monthOutdatedAt,
+        ]);
+        WordpressCoreUpdate::create([
+            'wordpress_site_id' => $site->id,
+            'site_name' => $site->name,
+            'current_version' => '6.8.0',
+            'latest_version' => '6.8.0',
+            'status' => 'up_to_date',
+            'checked_at' => CarbonImmutable::now(),
+        ]);
+
+        $vulnerabilities = app(MonthlyItSecurityReport::class)->build($reportMonth)['vulnerabilities'];
+
+        $this->assertCount(1, $vulnerabilities['plugin_findings']);
+        $this->assertSame('Still outdated plugin', $vulnerabilities['plugin_findings']->first()->plugin_name);
+        $this->assertCount(0, $vulnerabilities['core_findings']);
     }
 
     public function test_recent_wordpress_history_shows_only_installed_version_upgrades(): void

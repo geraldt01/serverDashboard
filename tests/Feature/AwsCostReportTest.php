@@ -10,51 +10,49 @@ use Tests\TestCase;
 
 class AwsCostReportTest extends TestCase
 {
-    public function test_it_queries_monthly_costs_by_service_for_six_months_and_current_month(): void
+    public function test_it_combines_month_to_date_actual_cost_with_the_monthly_forecast(): void
     {
         $today = CarbonImmutable::parse('2026-10-12 10:00:00');
         $client = Mockery::mock(CostExplorerClient::class);
         $client->shouldReceive('getCostAndUsage')
             ->once()
             ->with([
-                'TimePeriod' => ['Start' => '2026-04-01', 'End' => '2026-10-13'],
+                'TimePeriod' => ['Start' => '2026-10-01', 'End' => '2026-10-12'],
                 'Granularity' => 'MONTHLY',
                 'Metrics' => ['UnblendedCost'],
-                'GroupBy' => [['Type' => 'DIMENSION', 'Key' => 'SERVICE']],
             ])
-            ->andReturn(['ResultsByTime' => [
-                [
-                    'TimePeriod' => ['Start' => '2026-04-01', 'End' => '2026-05-01'],
-                    'Groups' => [
-                        ['Keys' => ['EC2 - Compute'], 'Metrics' => ['UnblendedCost' => ['Amount' => '200.00', 'Unit' => 'USD']]],
-                        ['Keys' => ['Tax'], 'Metrics' => ['UnblendedCost' => ['Amount' => '20.00', 'Unit' => 'USD']]],
-                        ['Keys' => ['EC2 - Other'], 'Metrics' => ['UnblendedCost' => ['Amount' => '10.00', 'Unit' => 'USD']]],
-                        ['Keys' => ['Support (Developer)'], 'Metrics' => ['UnblendedCost' => ['Amount' => '5.00', 'Unit' => 'USD']]],
-                    ],
-                ],
-                [
-                    'TimePeriod' => ['Start' => '2026-10-01', 'End' => '2026-11-01'],
-                    'Groups' => [
-                        ['Keys' => ['EC2 - Compute'], 'Metrics' => ['UnblendedCost' => ['Amount' => '100.00', 'Unit' => 'USD']]],
-                        ['Keys' => ['Tax'], 'Metrics' => ['UnblendedCost' => ['Amount' => '10.00', 'Unit' => 'USD']]],
-                        ['Keys' => ['EC2 - Other'], 'Metrics' => ['UnblendedCost' => ['Amount' => '4.00', 'Unit' => 'USD']]],
-                        ['Keys' => ['Support (Developer)'], 'Metrics' => ['UnblendedCost' => ['Amount' => '2.00', 'Unit' => 'USD']]],
-                    ],
-                ],
-            ]]);
+            ->andReturn(['ResultsByTime' => [[
+                'Total' => ['UnblendedCost' => ['Amount' => '100.00', 'Unit' => 'USD']],
+            ]]]);
+        $client->shouldReceive('getCostForecast')
+            ->once()
+            ->with([
+                'TimePeriod' => ['Start' => '2026-10-12', 'End' => '2026-11-01'],
+                'Granularity' => 'MONTHLY',
+                'Metric' => 'UNBLENDED_COST',
+                'PredictionIntervalLevel' => 80,
+            ])
+            ->andReturn([
+                'Total' => ['Amount' => '250.00', 'Unit' => 'USD'],
+                'ForecastResultsByTime' => [[
+                    'MeanValue' => '250.00',
+                    'PredictionIntervalLowerBound' => '220.00',
+                    'PredictionIntervalUpperBound' => '280.00',
+                ]],
+            ]);
 
         $costs = (new AwsCostReport($client))->build($today);
 
         $this->assertTrue($costs['available']);
-        $this->assertSame(['Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026'], $costs['labels']);
-        $this->assertSame(351.0, $costs['total']);
+        $this->assertSame(['Oct 2026'], $costs['labels']);
+        $this->assertSame(350.0, $costs['total']);
+        $this->assertSame(100.0, $costs['actual_to_date']);
+        $this->assertSame(250.0, $costs['forecast_remaining']);
+        $this->assertSame(320.0, $costs['lower_bound']);
+        $this->assertSame(380.0, $costs['upper_bound']);
         $this->assertSame('USD', $costs['unit']);
-        $this->assertCount(4, $costs['services']);
-        $compute = collect($costs['services'])->firstWhere('name', 'EC2 - Compute');
-        $this->assertSame([200.0, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0], $compute['data']);
-        $this->assertNotNull(collect($costs['services'])->firstWhere('name', 'Tax'));
-        $this->assertNotNull(collect($costs['services'])->firstWhere('name', 'EC2 - Other'));
-        $this->assertNotNull(collect($costs['services'])->firstWhere('name', 'Support (Developer)'));
+        $this->assertSame('Projected monthly cost', $costs['services'][0]['name']);
+        $this->assertSame([350.0], $costs['services'][0]['data']);
         $this->assertStringContainsString('not real-time', strtolower($costs['data_note']));
     }
 }

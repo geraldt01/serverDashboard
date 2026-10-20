@@ -46,10 +46,16 @@ class MonthlyItSecurityReport
         $currentTicketChanges = SupportTicketChange::query()->with(['ticket', 'actor'])
             ->whereBetween('created_at', [CarbonImmutable::now()->startOfMonth(), CarbonImmutable::now()])
             ->latest()->get();
-        $outdatedPlugins = $pluginRows->sortByDesc(fn ($row) => [$row->checked_at, $row->id])
+        $currentPluginRows = WordpressPluginUpdate::query()
+            ->whereIn('id', WordpressPluginUpdate::query()->selectRaw('MAX(id)')->groupBy('wordpress_site_id', 'plugin_name'))
+            ->get();
+        $currentCoreRows = WordpressCoreUpdate::query()
+            ->whereIn('id', WordpressCoreUpdate::query()->selectRaw('MAX(id)')->groupBy('wordpress_site_id'))
+            ->get();
+        $outdatedPlugins = $currentPluginRows
             ->unique(fn ($row) => $row->wordpress_site_id.':'.$row->plugin_name)
             ->where('status', 'outdated')->values();
-        $outdatedCore = $coreRows->sortByDesc(fn ($row) => [$row->checked_at, $row->id])
+        $outdatedCore = $currentCoreRows
             ->unique('wordpress_site_id')
             ->where('status', 'outdated')->values();
         $latestEc2 = $latestEc2->keyBy(fn ($status) => ($status->aws_region ?: config('services.aws.region')).':'.$status->instance_id);
