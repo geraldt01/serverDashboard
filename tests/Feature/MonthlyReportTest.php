@@ -129,7 +129,7 @@ class MonthlyReportTest extends TestCase
             ->assertHeader('X-Robots-Tag', 'noindex, nofollow')
             ->assertHeader('Referrer-Policy', 'no-referrer')
             ->assertSee('IT &amp; Security Report', false)
-            ->assertSee('AWS monthly cost forecast')
+            ->assertSee('AWS cost breakdown')
             ->assertSee('Backup policy')
             ->assertSee('Config App change log')
             ->assertSee('Systems, access and operating guide');
@@ -380,25 +380,21 @@ class MonthlyReportTest extends TestCase
         $this->assertSame('2026-10-01', $period['end']->toDateString());
     }
 
-    public function test_public_report_shows_monthly_cost_forecast_details(): void
+    public function test_public_report_shows_historical_cost_breakdown(): void
     {
         $settings = MonthlyReportSetting::current();
         $costReport = \Mockery::mock(AwsCostReport::class);
         $costReport->shouldReceive('build')->once()->andReturn([
             'available' => true,
-            'labels' => ['Oct 2026'],
+            'labels' => ['Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026'],
             'services' => [[
-                'name' => 'Projected monthly cost',
-                'data' => [218.75],
+                'name' => 'Amazon EC2',
+                'data' => [100.00, 0, 0, 0, 0, 0, 118.75],
                 'color' => '#357b91',
             ]],
             'total' => 218.75,
-            'actual_to_date' => 100.00,
-            'forecast_remaining' => 118.75,
-            'lower_bound' => 190.00,
-            'upper_bound' => 240.00,
             'unit' => 'USD',
-            'range_label' => 'October 2026 monthly forecast',
+            'range_label' => 'Last 6 months + current month to date',
             'refreshed_at' => now(),
             'data_note' => 'Fetched live. AWS billing data is not real-time and may be delayed.',
         ]);
@@ -407,10 +403,12 @@ class MonthlyReportTest extends TestCase
         $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
             ->assertOk()
             ->assertSee('aws-cost-chart')
-            ->assertSee('Projected monthly cost: 218.75 USD')
-            ->assertSee('Actual cost to date')
-            ->assertSee('Forecast for remaining days')
-            ->assertSee('80% prediction interval')
+            ->assertSee('AWS cost breakdown')
+            ->assertSee('Total cost: 218.75 USD')
+            ->assertSee('Last 6 months + current month to date')
+            ->assertSee('Amazon EC2')
+            ->assertDontSee('Forecast for remaining days')
+            ->assertDontSee('Projected monthly cost')
             ->assertSee('Refresh costs')
             ->assertSee('not real-time');
     }

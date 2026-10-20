@@ -18,8 +18,8 @@ class AwsCostReportTest extends TestCase
     {
         $cases = [
             [new CredentialsException('private-credential-detail'), 'AWS credentials are unavailable'],
-            [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['code' => 'AccessDeniedException']), 'ce:GetCostAndUsage and ce:GetCostForecast'],
-            [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['code' => 'DataUnavailableException']), 'sufficient forecast history'],
+            [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['code' => 'AccessDeniedException']), 'Grant ce:GetCostAndUsage'],
+            [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['code' => 'DataUnavailableException']), 'billing data to become available'],
             [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['code' => 'ExpiredTokenException']), 'have not expired'],
             [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['code' => 'LimitExceededException']), 'rate limited'],
             [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['connection_error' => true]), 'outbound HTTPS'],
@@ -40,49 +40,35 @@ class AwsCostReportTest extends TestCase
         }
     }
 
-    public function test_it_combines_month_to_date_actual_cost_with_the_monthly_forecast(): void
+    public function test_it_loads_six_months_and_current_month_costs_by_service_without_forecasting(): void
     {
         $today = CarbonImmutable::parse('2026-10-12 10:00:00');
         $client = Mockery::mock(CostExplorerClient::class);
         $client->shouldReceive('getCostAndUsage')
             ->once()
             ->with([
-                'TimePeriod' => ['Start' => '2026-10-01', 'End' => '2026-10-12'],
+                'TimePeriod' => ['Start' => '2026-04-01', 'End' => '2026-10-13'],
                 'Granularity' => 'MONTHLY',
                 'Metrics' => ['UnblendedCost'],
+                'GroupBy' => [['Type' => 'DIMENSION', 'Key' => 'SERVICE']],
             ])
             ->andReturn(new Result(['ResultsByTime' => [[
-                'Total' => ['UnblendedCost' => ['Amount' => '100.00', 'Unit' => 'USD']],
-            ]]]));
-        $client->shouldReceive('getCostForecast')
-            ->once()
-            ->with([
-                'TimePeriod' => ['Start' => '2026-10-12', 'End' => '2026-11-01'],
-                'Granularity' => 'MONTHLY',
-                'Metric' => 'UNBLENDED_COST',
-                'PredictionIntervalLevel' => 80,
-            ])
-            ->andReturn(new Result([
-                'Total' => ['Amount' => '250.00', 'Unit' => 'USD'],
-                'ForecastResultsByTime' => [[
-                    'MeanValue' => '250.00',
-                    'PredictionIntervalLowerBound' => '220.00',
-                    'PredictionIntervalUpperBound' => '280.00',
+                'TimePeriod' => ['Start' => '2026-10-01'],
+                'Groups' => [[
+                    'Keys' => ['Amazon EC2'],
+                    'Metrics' => ['UnblendedCost' => ['Amount' => '100.00', 'Unit' => 'USD']],
                 ]],
-            ]));
+            ]]]));
+        $client->shouldNotReceive('getCostForecast');
 
         $costs = (new AwsCostReport($client))->build($today);
 
         $this->assertTrue($costs['available']);
-        $this->assertSame(['Oct 2026'], $costs['labels']);
-        $this->assertSame(350.0, $costs['total']);
-        $this->assertSame(100.0, $costs['actual_to_date']);
-        $this->assertSame(250.0, $costs['forecast_remaining']);
-        $this->assertSame(320.0, $costs['lower_bound']);
-        $this->assertSame(380.0, $costs['upper_bound']);
+        $this->assertSame(['Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026'], $costs['labels']);
+        $this->assertSame(100.0, $costs['total']);
         $this->assertSame('USD', $costs['unit']);
-        $this->assertSame('Projected monthly cost', $costs['services'][0]['name']);
-        $this->assertSame([350.0], $costs['services'][0]['data']);
+        $this->assertSame('Amazon EC2', $costs['services'][0]['name']);
+        $this->assertSame([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0], $costs['services'][0]['data']);
         $this->assertStringContainsString('not real-time', strtolower($costs['data_note']));
     }
 }

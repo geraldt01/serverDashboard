@@ -343,19 +343,14 @@
 
     <section class="panel report-section" id="aws-costs">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
-            <div><h2 style="margin-bottom:4px">AWS monthly cost forecast</h2><p class="muted">{{ $report['costs']['range_label'] ?? 'Current month forecast' }}</p></div>
+            <div><h2 style="margin-bottom:4px">AWS cost breakdown</h2><p class="muted">{{ $report['costs']['range_label'] ?? 'Last 6 months' }} · Grouped by AWS service</p></div>
             <button type="button" class="secondary" onclick="window.location.reload()" aria-label="Refresh AWS cost report">Refresh costs</button>
         </div>
         @if ($report['costs']['available'])
-            <p style="margin:14px 0 4px"><strong>Projected monthly cost: {{ number_format($report['costs']['total'], 2) }} {{ $report['costs']['unit'] }}</strong></p>
-            <div style="height:260px;position:relative"><canvas id="aws-cost-chart" role="img" aria-label="AWS current-month projected cost"></canvas></div>
-            <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>Monthly estimate</th><th>Amount</th></tr></thead><tbody>
-                <tr><td>Actual cost to date</td><td>{{ number_format($report['costs']['actual_to_date'], 2) }} {{ $report['costs']['unit'] }}</td></tr>
-                <tr><td>Forecast for remaining days</td><td>{{ number_format($report['costs']['forecast_remaining'], 2) }} {{ $report['costs']['unit'] }}</td></tr>
-                <tr><td><strong>Projected monthly cost</strong></td><td><strong>{{ number_format($report['costs']['total'], 2) }} {{ $report['costs']['unit'] }}</strong></td></tr>
-                @if ($report['costs']['lower_bound'] !== null && $report['costs']['upper_bound'] !== null)
-                    <tr><td>80% prediction interval</td><td>{{ number_format($report['costs']['lower_bound'], 2) }}–{{ number_format($report['costs']['upper_bound'], 2) }} {{ $report['costs']['unit'] }}</td></tr>
-                @endif
+            <p style="margin:14px 0 4px"><strong>Total cost: {{ number_format($report['costs']['total'], 2) }} {{ $report['costs']['unit'] }}</strong></p>
+            <div style="height:300px;position:relative"><canvas id="aws-cost-chart" role="img" aria-label="Stacked monthly AWS cost chart by service"></canvas></div>
+            <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>AWS service</th><th>Total for period</th></tr></thead><tbody>
+                @foreach ($report['costs']['services'] as $service)<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ $service['color'] }};margin-right:7px"></span>{{ $service['name'] }}</td><td>{{ number_format(array_sum($service['data']), 2) }} {{ $report['costs']['unit'] }}</td></tr>@endforeach
             </tbody></table></div>
             <script>
                 (() => {
@@ -382,19 +377,19 @@
                             maintainAspectRatio: false,
                             interaction: { mode: 'index', intersect: false },
                             plugins: {
-                                legend: { display: false },
+                                legend: { position: 'bottom', labels: { usePointStyle: true, pointStyle: 'rect', boxWidth: 10, padding: 18 } },
                                 tooltip: { callbacks: { label: context => `${context.dataset.label}: ${Number(context.raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {{ $report['costs']['unit'] }}` } },
                             },
                             scales: {
-                                x: { grid: { display: false } },
-                                y: { beginAtZero: true, title: { display: true, text: 'Projected cost ({{ $report['costs']['unit'] }})' } },
+                                x: { stacked: true, grid: { display: false } },
+                                y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Cost ({{ $report['costs']['unit'] }})' } },
                             },
                         },
                     });
                 })();
             </script>
         @else
-            <p style="margin-top:16px">Monthly cost forecast unavailable.</p>
+            <p style="margin-top:16px">Cost data unavailable.</p>
         @endif
         <p class="report-note" style="margin-top:12px">{{ $report['costs']['data_note'] ?? 'Fetched live from Cost Explorer; AWS billing data may be delayed.' }}</p>
     </section>

@@ -88,20 +88,19 @@ Each submission accepts up to five files of 10 MB each: JPG/JPEG, PNG, GIF, WebP
 
 Run `php artisan migrate --force`, configure the production SMTP mailer, sign in as an admin, and open **Reporting Settings** to enter the manager's email address. The public report uses a 256-bit random bearer link; anyone who has it can view the report, so share it only with the intended recipient. Rotate the link from Reporting Settings if it is disclosed. The email is scheduled for the 5th at 08:00 in the application's configured timezone and covers the previous complete calendar month.
 
-The report combines stored WordPress update/plugin/core/PHP reports, EC2 Systems Manager patch snapshots, five-minute uptime observations, ticket change history, user roles/MFA, and an operating guide. Uptime polling checks active WordPress site URLs and EC2 instance/system health in every enabled AWS region. An hourly read-only collector also records EC2 patch compliance across enabled regions; this does not install patches and queries only instances registered as Systems Manager managed nodes. Agent-reported server patch snapshots and package details are retained in the database for the recent patch-history table. SSM history consists of compliance observations (not individual install-command results); historical agent reports start only after the history migration is deployed. The AWS cost section estimates the current calendar month's total by combining Cost Explorer month-to-date actual spend with its forecast for the remaining days; **Refresh costs** reloads that report. The projection includes an 80% prediction interval when AWS returns one. Billing data is not real-time and often has a delay of 24 hours or more. The app's AWS identity needs `ec2:DescribeRegions`, `ec2:DescribeInstances`, `ec2:DescribeInstanceStatus`, `ssm:DescribeInstanceInformation`, `ssm:DescribeInstancePatchStates`, `ce:GetCostAndUsage`, and `ce:GetCostForecast` (plus existing permissions for the manual patch-install action). Without those permissions, the report labels costs or monitoring data unavailable rather than inventing values.
+The report combines stored WordPress update/plugin/core/PHP reports, EC2 Systems Manager patch snapshots, five-minute uptime observations, ticket change history, user roles/MFA, and an operating guide. Uptime polling checks active WordPress site URLs and EC2 instance/system health in every enabled AWS region. An hourly read-only collector also records EC2 patch compliance across enabled regions; this does not install patches and queries only instances registered as Systems Manager managed nodes. Agent-reported server patch snapshots and package details are retained in the database for the recent patch-history table. SSM history consists of compliance observations (not individual install-command results); historical agent reports start only after the history migration is deployed. The AWS cost section shows the last six months plus the current month to date, grouped by AWS service; **Refresh costs** reloads that report. No forecast API is called. Each report load makes a live Cost Explorer request, which AWS charges for (currently US$0.01 per primary-billing-view request). Billing data is not real-time and often has a delay of 24 hours or more. The app's AWS identity needs `ec2:DescribeRegions`, `ec2:DescribeInstances`, `ec2:DescribeInstanceStatus`, `ssm:DescribeInstanceInformation`, `ssm:DescribeInstancePatchStates`, and `ce:GetCostAndUsage` (plus existing permissions for the manual patch-install action). Without those permissions, the report labels costs or monitoring data unavailable rather than inventing values.
 
-To enable the monthly cost forecast, first enable Cost Explorer for the AWS account in **Billing and Cost Management → Cost Explorer**. Then attach this least-privilege read policy to the same IAM role/user that the dashboard's AWS SDK uses (Cost Explorer does not support resource-level scoping for these actions):
+To enable historical costs, first enable Cost Explorer for the AWS account in **Billing and Cost Management → Cost Explorer**. Then attach this least-privilege read policy to the same IAM role/user that the dashboard's AWS SDK uses (Cost Explorer does not support resource-level scoping for this action):
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ReadCostExplorerForecast",
+      "Sid": "ReadCostExplorerHistory",
       "Effect": "Allow",
       "Action": [
-        "ce:GetCostAndUsage",
-        "ce:GetCostForecast"
+        "ce:GetCostAndUsage"
       ],
       "Resource": "*"
     }
@@ -109,7 +108,7 @@ To enable the monthly cost forecast, first enable Cost Explorer for the AWS acco
 }
 ```
 
-Prefer the EC2 instance role in production. For local development, use freshly rotated AWS credentials through the AWS SDK credential chain or a named AWS profile; do not commit secrets. `AWS_DEFAULT_REGION` remains the region for EC2 operations, while Cost Explorer requests use its global `us-east-1` API endpoint. After changing server environment variables run `php artisan config:cache`. Verify the identity safely on the server with `aws sts get-caller-identity`, then test the forecast permission with `aws ce get-cost-forecast --time-period "Start=2026-10-20,End=2026-11-01" --granularity MONTHLY --metric UNBLENDED_COST --prediction-interval-level 80 --region us-east-1` (replace the dates with a valid current-month range for your account). Never paste credential values into tickets or chat.
+Prefer the EC2 instance role in production. For local development, use freshly rotated AWS credentials through the AWS SDK credential chain or a named AWS profile; do not commit secrets. `AWS_DEFAULT_REGION` remains the region for EC2 operations, while Cost Explorer requests use its global `us-east-1` API endpoint. After changing server environment variables run `php artisan config:cache`. Verify the identity safely on the server with `aws sts get-caller-identity`. The historical cost view does not require `ce:GetCostForecast`. Never paste credential values into tickets or chat.
 
 The dashboard does not integrate a CVE vulnerability scanner. WordPress outdated plugin/core reports and AWS security-patch counts are update findings, not confirmed exploitable vulnerabilities; any resolved count is inferred from a later report or a reduced patch count, not verified installation evidence. Backup rows are the stated policy only (weekly EC2, daily WP Engine); verify provider jobs monthly and record a quarterly restore test in Support Ticketing.
 

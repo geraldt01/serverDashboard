@@ -17,9 +17,8 @@ class AwsCostReport
     public function build(?CarbonImmutable $today = null): array
     {
         $today = $today ?? CarbonImmutable::now();
-        $monthStart = $today->startOfMonth();
-        $todayStart = $today->startOfDay();
-        $monthEnd = $monthStart->addMonth();
+        $start = $today->startOfMonth()->subMonths(6);
+        $end = $today->startOfDay()->addDay();
 
         if (app()->environment('testing') && $this->client === null) {
             return $this->unavailable($today, 'Cost Explorer is not queried in the test environment.');
@@ -32,30 +31,17 @@ class AwsCostReport
                 'retries' => 0,
                 'http' => ['connect_timeout' => 3, 'timeout' => 8],
             ]);
-            $actualAmount = 0.0;
-            $unit = 'USD';
-            if ($todayStart->greaterThan($monthStart)) {
-                $actual = $client->getCostAndUsage([
-                    'TimePeriod' => ['Start' => $monthStart->toDateString(), 'End' => $todayStart->toDateString()],
-                    'Granularity' => 'MONTHLY',
-                    'Metrics' => ['UnblendedCost'],
-                ]);
-                $actualCost = $actual['ResultsByTime'][0]['Total']['UnblendedCost'] ?? [];
-                $actualAmount = (float) ($actualCost['Amount'] ?? 0);
-                $unit = $actualCost['Unit'] ?? $unit;
-            }
-
-            $forecast = $client->getCostForecast([
-                'TimePeriod' => ['Start' => $todayStart->toDateString(), 'End' => $monthEnd->toDateString()],
+            $result = $client->getCostAndUsage([
+                'TimePeriod' => ['Start' => $start->toDateString(), 'End' => $end->toDateString()],
                 'Granularity' => 'MONTHLY',
-                'Metric' => 'UNBLENDED_COST',
-                'PredictionIntervalLevel' => 80,
+                'Metrics' => ['UnblendedCost'],
+                'GroupBy' => [['Type' => 'DIMENSION', 'Key' => 'SERVICE']],
             ]);
 
-            return $this->formatForecast($forecast, $actualAmount, $unit, $monthStart, $today);
+            return $this->formatResults($result['ResultsByTime'] ?? [], $start, $end, $today);
         } catch (\Throwable $exception) {
             $note = $this->failureNote($exception);
-            Log::warning('AWS monthly cost forecast unavailable.', ['reason' => $note]);
+            Log::warning('AWS cost history unavailable.', ['reason' => $note]);
 
             return $this->unavailable($today, $note);
         }
@@ -69,8 +55,8 @@ class AwsCostReport
 
         if ($exception instanceof AwsException) {
             return match ($exception->getAwsErrorCode()) {
-                'AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation' => 'AWS denied Cost Explorer access. Grant ce:GetCostAndUsage and ce:GetCostForecast to the dashboard identity; check organization policies and billing-account restrictions.',
-                'DataUnavailableException' => 'AWS has no cost or forecast data available yet. Enable Cost Explorer in the billing account and allow time for billing data and sufficient forecast history to become available.',
+                'AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation' => 'AWS denied Cost Explorer access. Grant ce:GetCostAndUsage to the dashboard identity; check organization policies and billing-account restrictions.',
+                'DataUnavailableException' => 'AWS has no cost data available yet. Enable Cost Explorer in the billing account and allow time for billing data to become available.',
                 'OptInRequired', 'OptInRequiredException' => 'Cost Explorer is not enabled for this AWS account. Enable it in AWS Billing and Cost Management, then allow time for data preparation.',
                 'InvalidClientTokenId', 'UnrecognizedClientException', 'ExpiredToken', 'ExpiredTokenException', 'InvalidSignatureException', 'SignatureDoesNotMatch' => 'AWS rejected the dashboard credentials. Check that its credentials and any session token are valid and have not expired.',
                 'LimitExceededException', 'Throttling', 'ThrottlingException', 'TooManyRequestsException' => 'AWS Cost Explorer is temporarily rate limited. Wait briefly before refreshing costs.',
@@ -80,7 +66,7 @@ class AwsCostReport
             };
         }
 
-        return 'The dashboard could not build the AWS cost forecast. Ask the administrator to verify the deployed application version and server configuration.';
+        return 'The dashboard could not build the AWS cost history. Ask the administrator to verify the deployed application version and server configuration.';
     }
 
     private function unavailable(CarbonImmutable $today, string $note): array
@@ -90,52 +76,55 @@ class AwsCostReport
             'labels' => [],
             'services' => [],
             'total' => null,
-            'actual_to_date' => null,
-            'forecast_remaining' => null,
-            'lower_bound' => null,
-            'upper_bound' => null,
             'unit' => null,
-            'range_label' => $today->format('F Y').' monthly forecast',
+            'range_label' => 'Last 6 months + current month to date',
             'refreshed_at' => $today,
             'data_note' => $note,
         ];
     }
 
-    private function formatForecast(array|\Aws\ResultInterface $forecast, float $actualAmount, string $unit, CarbonImmutable $monthStart, CarbonImmutable $today): array
+    private function formatResults(array $periods, CarbonImmutable $start, CarbonImmutable $end, CarbonImmutable $today): array
     {
-        $forecastPeriods = $forecast['ForecastResultsByTime'] ?? [];
-        $forecastAmount = (float) ($forecast['Total']['Amount'] ?? array_sum(array_map(
-            fn ($period) => (float) ($period['MeanValue'] ?? 0),
-            $forecastPeriods
-        )));
-        $lowerBounds = array_column($forecastPeriods, 'PredictionIntervalLowerBound');
-        $upperBounds = array_column($forecastPeriods, 'PredictionIntervalUpperBound');
-        $lowerBound = $lowerBounds !== [] && ! in_array(null, $lowerBounds, true)
-            ? $actualAmount + array_sum(array_map('floatval', $lowerBounds))
-            : null;
-        $upperBound = $upperBounds !== [] && ! in_array(null, $upperBounds, true)
-            ? $actualAmount + array_sum(array_map('floatval', $upperBounds))
-            : null;
-        $total = $actualAmount + $forecastAmount;
-        $label = $monthStart->format('M Y');
+        $labels = [];
+        for ($month = $start; $month < $end; $month = $month->addMonth()) {
+            $labels[] = $month->format('M Y');
+        }
+
+        $serviceValues = [];
+        $unit = 'USD';
+        foreach ($periods as $period) {
+            $month = CarbonImmutable::parse($period['TimePeriod']['Start'])->format('M Y');
+            foreach ($period['Groups'] ?? [] as $group) {
+                $service = $group['Keys'][0] ?? 'Other / no service';
+                $amount = (float) ($group['Metrics']['UnblendedCost']['Amount'] ?? 0);
+                $unit = $group['Metrics']['UnblendedCost']['Unit'] ?? $unit;
+                $serviceValues[$service][$month] = ($serviceValues[$service][$month] ?? 0) + $amount;
+            }
+        }
+
+        $palette = ['#5279df', '#c81e78', '#e2173d', '#168a72', '#a16bcc', '#b06a00', '#357b91', '#5f6c7b'];
+        $services = [];
+        $total = 0.0;
+        foreach ($serviceValues as $service => $values) {
+            $data = array_map(fn ($label) => round($values[$label] ?? 0, 2), $labels);
+            $total += array_sum($data);
+            $services[] = [
+                'name' => $service === '' ? 'Other / no service' : $service,
+                'data' => $data,
+                'color' => $palette[count($services) % count($palette)],
+            ];
+        }
+        usort($services, fn ($left, $right) => array_sum($right['data']) <=> array_sum($left['data']));
 
         return [
             'available' => true,
-            'labels' => [$label],
-            'services' => [[
-                'name' => 'Projected monthly cost',
-                'data' => [round($total, 2)],
-                'color' => '#357b91',
-            ]],
+            'labels' => $labels,
+            'services' => $services,
             'total' => round($total, 2),
-            'actual_to_date' => round($actualAmount, 2),
-            'forecast_remaining' => round($forecastAmount, 2),
-            'lower_bound' => $lowerBound === null ? null : round($lowerBound, 2),
-            'upper_bound' => $upperBound === null ? null : round($upperBound, 2),
             'unit' => $unit,
-            'range_label' => $today->format('F Y').' monthly forecast',
+            'range_label' => 'Last 6 months + current month to date',
             'refreshed_at' => $today,
-            'data_note' => 'Projected total combines month-to-date actual spend with Cost Explorer’s forecast for the remaining days. AWS billing data is not real-time and may take up to 24 hours or longer to appear.',
+            'data_note' => 'Fetched live from AWS Cost Explorer for this page view. AWS billing data is not real-time and may take up to 24 hours or longer to appear.',
         ];
     }
 }
