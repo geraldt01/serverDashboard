@@ -3,7 +3,10 @@
 namespace Tests\Feature;
 
 use App\Services\AwsCostReport;
+use Aws\Command;
 use Aws\CostExplorer\CostExplorerClient;
+use Aws\Exception\AwsException;
+use Aws\Exception\CredentialsException;
 use Aws\Result;
 use Carbon\CarbonImmutable;
 use Mockery;
@@ -11,6 +14,32 @@ use Tests\TestCase;
 
 class AwsCostReportTest extends TestCase
 {
+    public function test_failures_have_actionable_messages_without_exposing_raw_errors(): void
+    {
+        $cases = [
+            [new CredentialsException('private-credential-detail'), 'AWS credentials are unavailable'],
+            [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['code' => 'AccessDeniedException']), 'ce:GetCostAndUsage and ce:GetCostForecast'],
+            [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['code' => 'DataUnavailableException']), 'sufficient forecast history'],
+            [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['code' => 'ExpiredTokenException']), 'have not expired'],
+            [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['code' => 'LimitExceededException']), 'rate limited'],
+            [new AwsException('private-credential-detail', new Command('GetCostAndUsage'), ['connection_error' => true]), 'outbound HTTPS'],
+            [new \RuntimeException('private-credential-detail'), 'deployed application version'],
+        ];
+
+        foreach ($cases as [$exception, $expectedNote]) {
+            $client = Mockery::mock(CostExplorerClient::class);
+            $client->shouldReceive('getCostAndUsage')->once()->andThrow($exception);
+            $client->shouldNotReceive('getCostForecast');
+
+            $costs = (new AwsCostReport($client))->build(CarbonImmutable::parse('2026-10-20'));
+
+            $this->assertFalse($costs['available']);
+            $this->assertNull($costs['total']);
+            $this->assertStringContainsString($expectedNote, $costs['data_note']);
+            $this->assertStringNotContainsString('private-credential-detail', json_encode($costs));
+        }
+    }
+
     public function test_it_combines_month_to_date_actual_cost_with_the_monthly_forecast(): void
     {
         $today = CarbonImmutable::parse('2026-10-12 10:00:00');

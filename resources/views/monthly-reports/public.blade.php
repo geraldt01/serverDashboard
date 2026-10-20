@@ -394,7 +394,7 @@
                 })();
             </script>
         @else
-            <p style="margin-top:16px">Cost data unavailable. Grant Cost Explorer access to the dashboard's AWS identity, then refresh the report.</p>
+            <p style="margin-top:16px">Monthly cost forecast unavailable.</p>
         @endif
         <p class="report-note" style="margin-top:12px">{{ $report['costs']['data_note'] ?? 'Fetched live from Cost Explorer; AWS billing data may be delayed.' }}</p>
     </section>

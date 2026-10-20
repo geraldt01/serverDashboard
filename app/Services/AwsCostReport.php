@@ -3,7 +3,10 @@
 namespace App\Services;
 
 use Aws\CostExplorer\CostExplorerClient;
+use Aws\Exception\AwsException;
+use Aws\Exception\CredentialsException;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Log;
 
 class AwsCostReport
 {
@@ -51,10 +54,33 @@ class AwsCostReport
 
             return $this->formatForecast($forecast, $actualAmount, $unit, $monthStart, $today);
         } catch (\Throwable $exception) {
-            report($exception);
+            $note = $this->failureNote($exception);
+            Log::warning('AWS monthly cost forecast unavailable.', ['reason' => $note]);
 
-            return $this->unavailable($today, 'Cost Explorer data is unavailable. Check AWS permissions and try again.');
+            return $this->unavailable($today, $note);
         }
+    }
+
+    private function failureNote(\Throwable $exception): string
+    {
+        if ($exception instanceof CredentialsException) {
+            return 'AWS credentials are unavailable to the dashboard process. Configure its IAM role or AWS SDK credential provider, then refresh costs.';
+        }
+
+        if ($exception instanceof AwsException) {
+            return match ($exception->getAwsErrorCode()) {
+                'AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation' => 'AWS denied Cost Explorer access. Grant ce:GetCostAndUsage and ce:GetCostForecast to the dashboard identity; check organization policies and billing-account restrictions.',
+                'DataUnavailableException' => 'AWS has no cost or forecast data available yet. Enable Cost Explorer in the billing account and allow time for billing data and sufficient forecast history to become available.',
+                'OptInRequired', 'OptInRequiredException' => 'Cost Explorer is not enabled for this AWS account. Enable it in AWS Billing and Cost Management, then allow time for data preparation.',
+                'InvalidClientTokenId', 'UnrecognizedClientException', 'ExpiredToken', 'ExpiredTokenException', 'InvalidSignatureException', 'SignatureDoesNotMatch' => 'AWS rejected the dashboard credentials. Check that its credentials and any session token are valid and have not expired.',
+                'LimitExceededException', 'Throttling', 'ThrottlingException', 'TooManyRequestsException' => 'AWS Cost Explorer is temporarily rate limited. Wait briefly before refreshing costs.',
+                default => $exception->isConnectionError()
+                    ? 'The dashboard could not connect to AWS Cost Explorer. Check outbound HTTPS access to ce.us-east-1.amazonaws.com and the server TLS configuration.'
+                    : 'AWS Cost Explorer could not complete the request. Ask the dashboard administrator to check the AWS billing configuration and server diagnostics.',
+            };
+        }
+
+        return 'The dashboard could not build the AWS cost forecast. Ask the administrator to verify the deployed application version and server configuration.';
     }
 
     private function unavailable(CarbonImmutable $today, string $note): array
