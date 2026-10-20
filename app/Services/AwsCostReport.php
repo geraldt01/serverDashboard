@@ -75,7 +75,7 @@ class AwsCostReport
         ];
     }
 
-    private function formatForecast(array $forecast, float $actualAmount, string $unit, CarbonImmutable $monthStart, CarbonImmutable $today): array
+    private function formatForecast(array|\Aws\ResultInterface $forecast, float $actualAmount, string $unit, CarbonImmutable $monthStart, CarbonImmutable $today): array
     {
         $forecastPeriods = $forecast['ForecastResultsByTime'] ?? [];
         $forecastAmount = (float) ($forecast['Total']['Amount'] ?? array_sum(array_map(

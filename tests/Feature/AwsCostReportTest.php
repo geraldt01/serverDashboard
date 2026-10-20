@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Services\AwsCostReport;
 use Aws\CostExplorer\CostExplorerClient;
+use Aws\Result;
 use Carbon\CarbonImmutable;
 use Mockery;
 use Tests\TestCase;
@@ -21,9 +22,9 @@ class AwsCostReportTest extends TestCase
                 'Granularity' => 'MONTHLY',
                 'Metrics' => ['UnblendedCost'],
             ])
-            ->andReturn(['ResultsByTime' => [[
+            ->andReturn(new Result(['ResultsByTime' => [[
                 'Total' => ['UnblendedCost' => ['Amount' => '100.00', 'Unit' => 'USD']],
-            ]]]);
+            ]]]));
         $client->shouldReceive('getCostForecast')
             ->once()
             ->with([
@@ -32,14 +33,14 @@ class AwsCostReportTest extends TestCase
                 'Metric' => 'UNBLENDED_COST',
                 'PredictionIntervalLevel' => 80,
             ])
-            ->andReturn([
+            ->andReturn(new Result([
                 'Total' => ['Amount' => '250.00', 'Unit' => 'USD'],
                 'ForecastResultsByTime' => [[
                     'MeanValue' => '250.00',
                     'PredictionIntervalLowerBound' => '220.00',
                     'PredictionIntervalUpperBound' => '280.00',
                 ]],
-            ]);
+            ]));
 
         $costs = (new AwsCostReport($client))->build($today);
 
