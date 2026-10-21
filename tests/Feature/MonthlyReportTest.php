@@ -387,11 +387,14 @@ class MonthlyReportTest extends TestCase
         $costReport->shouldReceive('build')->once()->andReturn([
             'available' => true,
             'labels' => ['Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026'],
-            'services' => [[
-                'name' => 'Amazon EC2',
-                'data' => [100.00, 0, 0, 0, 0, 0, 118.75],
-                'color' => '#357b91',
-            ]],
+            'services' => [
+                ['name' => 'Amazon EC2', 'data' => [100.00, 0, 0, 0, 0, 0, 118.75], 'color' => '#357b91'],
+                ['name' => 'Amazon RDS', 'data' => [50, 0, 0, 0, 0, 0, 0], 'color' => '#5279df'],
+                ['name' => 'Amazon S3', 'data' => [40, 0, 0, 0, 0, 0, 0], 'color' => '#c81e78'],
+                ['name' => 'Amazon CloudFront', 'data' => [30, 0, 0, 0, 0, 0, 0], 'color' => '#e2173d'],
+                ['name' => 'Amazon Lambda', 'data' => [20, 0, 0, 0, 0, 0, 0], 'color' => '#168a72'],
+                ['name' => 'Amazon DynamoDB', 'data' => [10, 0, 0, 0, 0, 0, 0], 'color' => '#a16bcc'],
+            ],
             'total' => 218.75,
             'unit' => 'USD',
             'range_label' => 'Last 6 months + current month to date',
@@ -407,6 +410,8 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Total cost: 218.75 USD')
             ->assertSee('Last 6 months + current month to date')
             ->assertSee('Amazon EC2')
+            ->assertSee('Amazon Lambda')
+            ->assertDontSee('Amazon DynamoDB')
             ->assertDontSee('Forecast for remaining days')
             ->assertDontSee('Projected monthly cost')
             ->assertSee('Refresh costs')

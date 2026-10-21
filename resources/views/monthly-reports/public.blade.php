@@ -342,6 +342,7 @@
     </section>
 
     <section class="panel report-section" id="aws-costs">
+        @php($topCostServices = collect($report['costs']['services'])->sortByDesc(fn ($service) => array_sum($service['data']))->take(5)->values())
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
             <div><h2 style="margin-bottom:4px">AWS cost breakdown</h2><p class="muted">{{ $report['costs']['range_label'] ?? 'Last 6 months' }} · Grouped by AWS service</p></div>
             <button type="button" class="secondary" onclick="window.location.reload()" aria-label="Refresh AWS cost report">Refresh costs</button>
@@ -350,14 +351,14 @@
             <p style="margin:14px 0 4px"><strong>Total cost: {{ number_format($report['costs']['total'], 2) }} {{ $report['costs']['unit'] }}</strong></p>
             <div style="height:300px;position:relative"><canvas id="aws-cost-chart" role="img" aria-label="Stacked monthly AWS cost chart by service"></canvas></div>
             <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>AWS service</th><th>Total for period</th></tr></thead><tbody>
-                @foreach ($report['costs']['services'] as $service)<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ $service['color'] }};margin-right:7px"></span>{{ $service['name'] }}</td><td>{{ number_format(array_sum($service['data']), 2) }} {{ $report['costs']['unit'] }}</td></tr>@endforeach
+                @foreach ($topCostServices as $service)<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ $service['color'] }};margin-right:7px"></span>{{ $service['name'] }}</td><td>{{ number_format(array_sum($service['data']), 2) }} {{ $report['costs']['unit'] }}</td></tr>@endforeach
             </tbody></table></div>
             <script>
                 (() => {
                     const canvas = document.getElementById('aws-cost-chart');
                     if (!canvas || !window.Chart) return;
                     const labels = @json($report['costs']['labels']);
-                    const services = @json($report['costs']['services']);
+                    const services = @json($topCostServices);
                     new Chart(canvas, {
                         type: 'bar',
                         data: {
