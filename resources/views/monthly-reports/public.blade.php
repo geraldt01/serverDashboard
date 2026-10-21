@@ -117,9 +117,8 @@
 
     <section class="panel report-section">
         <h2>Amazon Inspector vulnerabilities</h2>
-        <p class="report-note" style="margin-top:12px">Active package and code vulnerability findings, including severity and fix availability.</p>
+        <p class="report-note" style="margin-top:12px">Amazon Inspector is AWS’s automated vulnerability management service. It scans supported workloads, including EC2 instances, container images and Lambda functions, for software vulnerabilities and network exposure. This section shows active package and code findings, their severity and whether a fix is available; network exposure findings are not included here.</p>
         @if ($report['inspector']['available'])
-            <p>Active vulnerability findings returned from Inspector in {{ count($report['inspector']['regions']) }} queried region(s).</p>
             @php($packageCoverage = $report['inspector']['package_coverage'])
             <div class="inspector-coverage" aria-label="Inspector findings with exploit and fix availability">
                 <div class="inspector-coverage-item">
@@ -245,7 +244,7 @@
 
     <section class="panel report-section">
         <h2>Server patch status</h2>
-        <p class="report-note" style="margin-top:12px">Latest reported pending updates and recent patch reductions observed across monitored servers.</p>
+        <p class="report-note" style="margin-top:12px">Latest reported pending updates and recent patch reductions observed across monitored AWS EC2 servers.</p>
         <h3>Current Status</h3>
         <div class="scroll report-table"><table><thead><tr><th>Server</th><th>Updates pending</th><th>Security updates</th><th>Pending update details</th><th>Pending security update details</th><th>Last report</th></tr></thead><tbody>
             @forelse ($report['ec2']['latest'] as $instance)

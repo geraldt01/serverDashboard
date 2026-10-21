@@ -130,6 +130,7 @@ class MonthlyReportTest extends TestCase
             ->assertHeader('Referrer-Policy', 'no-referrer')
             ->assertSee('IT &amp; Security Report', false)
             ->assertSee('AWS cost breakdown')
+            ->assertSee('Amazon Inspector is AWS’s automated vulnerability management service')
             ->assertSee('Backup policy')
             ->assertSee('Config App change log')
             ->assertSee('Systems, access and operating guide');
@@ -418,6 +419,7 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Current month to date: 118.75 USD')
             ->assertSee('Estimated month-end: '.number_format(round($monthToDateCost / $today->day * $today->daysInMonth, 2), 2).' USD')
             ->assertDontSee('Live snapshot of active Amazon Inspector package vulnerability findings')
+            ->assertDontSee('Active vulnerability findings returned from Inspector')
             ->assertDontSee('Most recent pending update counts and details reported for each server')
             ->assertDontSee('Patch reductions first observed in reports during the last 30 days')
             ->assertDontSee('Times show when a report first observed fewer pending patches')
