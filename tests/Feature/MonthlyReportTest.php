@@ -13,6 +13,7 @@ use App\Models\WordpressSite;
 use App\Console\Commands\SendMonthlyItSecurityReport;
 use App\Mail\MonthlyItSecurityReportMail;
 use App\Services\AwsCostReport;
+use App\Services\AwsBackupReport;
 use App\Services\AwsInspectorReport;
 use App\Services\MonthlyItSecurityReport;
 use Aws\Inspector2\Inspector2Client;
@@ -386,6 +387,19 @@ class MonthlyReportTest extends TestCase
         $settings = MonthlyReportSetting::current();
         $today = CarbonImmutable::now();
         $monthToDateCost = 118.75;
+        $awsBackupReport = \Mockery::mock(AwsBackupReport::class);
+        $awsBackupReport->shouldReceive('build')->once()->andReturn([
+            'available' => true,
+            'partial' => false,
+            'regions' => ['ap-southeast-2'],
+            'failed_regions' => [],
+            'plans' => [['name' => 'Production daily', 'region' => 'ap-southeast-2']],
+            'jobs' => [['state' => 'COMPLETED', 'resource' => 'production-instance', 'region' => 'ap-southeast-2', 'created_at' => $today]],
+            'job_counts' => ['COMPLETED' => 1],
+            'refreshed_at' => $today,
+            'data_note' => 'Read-only AWS Backup plans and backup jobs from the last 30 days.',
+        ]);
+        $this->app->instance(AwsBackupReport::class, $awsBackupReport);
         $costReport = \Mockery::mock(AwsCostReport::class);
         $costReport->shouldReceive('build')->once()->andReturn([
             'available' => true,
@@ -418,6 +432,9 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Oct 2026 \u00b7 118.75 USD')
             ->assertSee('Current month to date: 118.75 USD')
             ->assertSee('Estimated month-end: '.number_format(round($monthToDateCost / $today->day * $today->daysInMonth, 2), 2).' USD')
+            ->assertSee('Production daily')
+            ->assertSee('production-instance')
+            ->assertSee('WP Engine backups')
             ->assertDontSee('Live snapshot of active Amazon Inspector package vulnerability findings')
             ->assertDontSee('Active vulnerability findings returned from Inspector')
             ->assertDontSee('Most recent pending update counts and details reported for each server')

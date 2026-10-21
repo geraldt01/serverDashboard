@@ -401,6 +401,31 @@
     <section class="panel report-section">
         <h2>Backup policy</h2>
         <p class="report-note" style="margin-top:12px">Reported backup schedules and restore-testing expectations for monitored systems.</p>
+        <h3>AWS Backup plans</h3>
+        <p class="report-note" style="margin-top:12px">Read-only plan inventory from configured AWS regions; native backups outside AWS Backup are not included.</p>
+        @if ($report['aws_backups']['available'])
+            <div class="scroll report-table"><table><thead><tr><th>Region</th><th>Backup plan</th></tr></thead><tbody>
+                @forelse ($report['aws_backups']['plans'] as $plan)
+                    <tr><td>{{ $plan['region'] }}</td><td>{{ $plan['name'] }}</td></tr>
+                @empty
+                    <tr><td colspan="2">No active AWS Backup plans were returned for the queried regions.</td></tr>
+                @endforelse
+            </tbody></table></div>
+            <h3 style="margin-top:22px">Recent AWS Backup jobs</h3>
+            <p class="report-note" style="margin-top:12px">Latest backup job outcomes returned by AWS Backup for the last 30 days.</p>
+            <div class="scroll report-table"><table><thead><tr><th>Created</th><th>Region</th><th>Resource</th><th>Status</th></tr></thead><tbody>
+                @forelse ($report['aws_backups']['jobs'] as $job)
+                    <tr><td>{{ $job['created_at']?->format('j M Y, H:i T') ?? 'Unknown' }}</td><td>{{ $job['region'] }}</td><td>{{ $job['resource'] }}</td><td><span class="report-tag">{{ $job['state'] }}</span></td></tr>
+                @empty
+                    <tr><td colspan="4">No AWS Backup jobs were returned for the last 30 days.</td></tr>
+                @endforelse
+            </tbody></table></div>
+            <p class="report-note" style="margin-top:10px">{{ $report['aws_backups']['data_note'] }}</p>
+        @else
+            <p>{{ $report['aws_backups']['data_note'] }}</p>
+        @endif
+        <h3 style="margin-top:22px">WP Engine backups</h3>
+        <p class="report-note" style="margin-top:12px">WP Engine backup information remains a reported policy; it is not queried by this AWS integration.</p>
         <div class="scroll report-table"><table><thead><tr><th>Systems</th><th>Reported schedule</th><th>Restore test</th></tr></thead><tbody>@foreach ($report['backups'] as $backup)<tr><td>{{ $backup['asset'] }}</td><td>{{ $backup['policy'] }}</td><td>{{ $backup['restore_test'] }}</td></tr>@endforeach</tbody></table></div>
     </section>
 

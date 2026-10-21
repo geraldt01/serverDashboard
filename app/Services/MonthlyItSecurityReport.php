@@ -71,6 +71,7 @@ class MonthlyItSecurityReport
         $uptime = $this->uptimeSummary($period);
         $costs = app(AwsCostReport::class)->build();
         $inspector = app(AwsInspectorReport::class)->build();
+        $awsBackups = app(AwsBackupReport::class)->build();
 
         return [
             'period' => $period,
@@ -94,8 +95,8 @@ class MonthlyItSecurityReport
             'users' => $users,
             'costs' => $costs,
             'inspector' => $inspector,
+            'aws_backups' => $awsBackups,
             'backups' => [
-                ['asset' => 'EC2 instances', 'policy' => 'Weekly AWS backups (reported policy; not verified by this dashboard)', 'restore_test' => 'Quarterly restore test; latest completion not recorded'],
                 ['asset' => 'WordPress websites', 'policy' => 'Daily WP Engine backups (reported policy; not verified by this dashboard)', 'restore_test' => 'Quarterly restore test; latest completion not recorded'],
             ],
             'improvement' => $this->improvement($securityPatchesPending, $patchesPending, $siteUpdateFindings, $uptime),

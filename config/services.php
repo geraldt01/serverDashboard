@@ -39,6 +39,10 @@ return [
         'regions' => array_values(array_filter(array_map('trim', explode(',', env('AWS_INSPECTOR_REGIONS', env('AWS_DEFAULT_REGION', 'us-east-1')))))),
     ],
 
+    'backup' => [
+        'regions' => array_values(array_filter(array_map('trim', explode(',', env('AWS_BACKUP_REGIONS', env('AWS_DEFAULT_REGION', 'us-east-1')))))),
+    ],
+
     'monitoring' => [
         'ingest_key' => env('MONITOR_INGEST_KEY'),
         'mock_mode' => env('AWS_SYNC_USE_MOCK', false),
