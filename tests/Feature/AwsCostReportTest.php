@@ -40,7 +40,7 @@ class AwsCostReportTest extends TestCase
         }
     }
 
-    public function test_it_loads_six_months_and_current_month_costs_by_service_without_forecasting(): void
+    public function test_it_calculates_a_local_month_end_estimate_from_cost_explorer_data(): void
     {
         $today = CarbonImmutable::parse('2026-10-12 10:00:00');
         $client = Mockery::mock(CostExplorerClient::class);
@@ -66,6 +66,8 @@ class AwsCostReportTest extends TestCase
         $this->assertTrue($costs['available']);
         $this->assertSame(['Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026'], $costs['labels']);
         $this->assertSame(100.0, $costs['total']);
+        $this->assertSame(100.0, $costs['current_month_total']);
+        $this->assertSame(258.33, $costs['month_end_estimate']);
         $this->assertSame('USD', $costs['unit']);
         $this->assertSame('Amazon EC2', $costs['services'][0]['name']);
         $this->assertSame([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0], $costs['services'][0]['data']);

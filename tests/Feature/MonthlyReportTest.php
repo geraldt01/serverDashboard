@@ -383,6 +383,8 @@ class MonthlyReportTest extends TestCase
     public function test_public_report_shows_historical_cost_breakdown(): void
     {
         $settings = MonthlyReportSetting::current();
+        $today = CarbonImmutable::now();
+        $monthToDateCost = 118.75;
         $costReport = \Mockery::mock(AwsCostReport::class);
         $costReport->shouldReceive('build')->once()->andReturn([
             'available' => true,
@@ -396,6 +398,8 @@ class MonthlyReportTest extends TestCase
                 ['name' => 'Amazon DynamoDB', 'data' => [10, 0, 0, 0, 0, 0, 0], 'color' => '#a16bcc'],
             ],
             'total' => 218.75,
+            'current_month_total' => $monthToDateCost,
+            'month_end_estimate' => round($monthToDateCost / $today->day * $today->daysInMonth, 2),
             'unit' => 'USD',
             'range_label' => 'Last 6 months + current month to date',
             'refreshed_at' => now(),
@@ -408,6 +412,9 @@ class MonthlyReportTest extends TestCase
             ->assertSee('aws-cost-chart')
             ->assertSee('AWS cost breakdown')
             ->assertSee('Total cost: 218.75 USD')
+            ->assertSee('Current month to date: 118.75 USD')
+            ->assertSee('Estimated month-end: '.number_format(round($monthToDateCost / $today->day * $today->daysInMonth, 2), 2).' USD')
+            ->assertSee('does not account for future usage changes')
             ->assertSee('Last 6 months + current month to date')
             ->assertSee('Amazon EC2')
             ->assertSee('Amazon Lambda')

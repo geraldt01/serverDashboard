@@ -76,6 +76,8 @@ class AwsCostReport
             'labels' => [],
             'services' => [],
             'total' => null,
+            'current_month_total' => null,
+            'month_end_estimate' => null,
             'unit' => null,
             'range_label' => 'Last 6 months + current month to date',
             'refreshed_at' => $today,
@@ -115,12 +117,21 @@ class AwsCostReport
             ];
         }
         usort($services, fn ($left, $right) => array_sum($right['data']) <=> array_sum($left['data']));
+        $currentMonthIndex = array_search($today->format('M Y'), $labels, true);
+        $currentMonthTotal = $currentMonthIndex === false
+            ? null
+            : array_sum(array_map(fn ($service) => $service['data'][$currentMonthIndex] ?? 0, $services));
+        $monthEndEstimate = $currentMonthTotal === null
+            ? null
+            : round($currentMonthTotal / $today->day * $today->daysInMonth, 2);
 
         return [
             'available' => true,
             'labels' => $labels,
             'services' => $services,
             'total' => round($total, 2),
+            'current_month_total' => $currentMonthTotal,
+            'month_end_estimate' => $monthEndEstimate,
             'unit' => $unit,
             'range_label' => 'Last 6 months + current month to date',
             'refreshed_at' => $today,

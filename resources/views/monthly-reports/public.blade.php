@@ -349,6 +349,10 @@
         </div>
         @if ($report['costs']['available'])
             <p style="margin:14px 0 4px"><strong>Total cost: {{ number_format($report['costs']['total'], 2) }} {{ $report['costs']['unit'] }}</strong></p>
+            @if ($report['costs']['month_end_estimate'] !== null)
+                <p class="muted" style="margin:4px 0">Current month to date: {{ number_format($report['costs']['current_month_total'], 2) }} {{ $report['costs']['unit'] }} · Estimated month-end: {{ number_format($report['costs']['month_end_estimate'], 2) }} {{ $report['costs']['unit'] }}</p>
+                <p class="report-note">Estimate uses the current month’s average daily cost and does not account for future usage changes. AWS billing data can be delayed.</p>
+            @endif
             <div style="height:300px;position:relative"><canvas id="aws-cost-chart" role="img" aria-label="Stacked monthly AWS cost chart by service"></canvas></div>
             <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>AWS service</th><th>Total for period</th></tr></thead><tbody>
                 @foreach ($topCostServices as $service)<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ $service['color'] }};margin-right:7px"></span>{{ $service['name'] }}</td><td>{{ number_format(array_sum($service['data']), 2) }} {{ $report['costs']['unit'] }}</td></tr>@endforeach
