@@ -345,11 +345,10 @@
         @php($topCostServices = collect($report['costs']['services'])->sortByDesc(fn ($service) => array_sum($service['data']))->take(5)->values())
         @php($monthlyCostLabels = array_map(fn ($month, $index) => $month.' · '.number_format(array_sum(array_map(fn ($service) => $service['data'][$index] ?? 0, $report['costs']['services'])), 2).' '.$report['costs']['unit'], $report['costs']['labels'], array_keys($report['costs']['labels'])))
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
-            <div><h2 style="margin-bottom:4px">AWS cost breakdown</h2><p class="muted">{{ $report['costs']['range_label'] ?? 'Last 6 months' }} · Grouped by AWS service</p></div>
+            <div><h2 style="margin-bottom:4px">AWS cost breakdown</h2></div>
             <button type="button" class="secondary" onclick="window.location.reload()" aria-label="Refresh AWS cost report">Refresh costs</button>
         </div>
         @if ($report['costs']['available'])
-            <p style="margin:14px 0 4px"><strong>Total cost: {{ number_format($report['costs']['total'], 2) }} {{ $report['costs']['unit'] }}</strong></p>
             @if ($report['costs']['month_end_estimate'] !== null)
                 <p class="muted" style="margin:4px 0">Current month to date: {{ number_format($report['costs']['current_month_total'], 2) }} {{ $report['costs']['unit'] }} · Estimated month-end: {{ number_format($report['costs']['month_end_estimate'], 2) }} {{ $report['costs']['unit'] }}</p>
                 <p class="report-note">Estimate uses the current month’s average daily cost and does not account for future usage changes. AWS billing data can be delayed.</p>
