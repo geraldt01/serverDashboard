@@ -88,6 +88,7 @@
 <div class="report-page">
     <header class="panel report-heading">
         <h1>IT &amp; Security Report</h1>
+        <p class="report-note" style="margin-top:12px">A monthly overview of security, system health, costs and operational activity.</p>
         <p class="muted">{{ $report['period']['label'] }} <span aria-hidden="true">·</span> Prepared {{ now()->format('j M Y, H:i T') }}</p>
     </header>
 
@@ -110,11 +111,13 @@
 
     <section class="panel report-section">
         <h2>What needs attention</h2>
+        <p class="report-note" style="margin-top:12px">Prioritized risks and follow-up actions identified from the available monitoring data.</p>
         <ul class="report-list">@foreach ($report['risks'] as $risk)<li>{{ $risk }}</li>@endforeach</ul>
     </section>
 
     <section class="panel report-section">
         <h2>Amazon Inspector vulnerabilities</h2>
+        <p class="report-note" style="margin-top:12px">Active package and code vulnerability findings, including severity and fix availability.</p>
         @if ($report['inspector']['available'])
             <p>Active vulnerability findings returned from Inspector in {{ count($report['inspector']['regions']) }} queried region(s).</p>
             @php($packageCoverage = $report['inspector']['package_coverage'])
@@ -243,7 +246,9 @@
 
     <section class="panel report-section">
         <h2>Server patch status</h2>
+        <p class="report-note" style="margin-top:12px">Latest reported pending updates and recent patch reductions observed across monitored servers.</p>
         <h3>Current Status</h3>
+        <p class="report-note" style="margin-top:12px">Most recent pending update counts and details reported for each server.</p>
         <div class="scroll report-table"><table><thead><tr><th>Server</th><th>Updates pending</th><th>Security updates</th><th>Pending update details</th><th>Pending security update details</th><th>Last report</th></tr></thead><tbody>
             @forelse ($report['ec2']['latest'] as $instance)
                 <tr><td><strong>{{ $instance->instance_name }}</strong><br><small>{{ $instance->instance_id }}{{ $instance->aws_region ? ' · '.$instance->aws_region : '' }}</small></td><td>{{ $instance->missing_count }}</td><td>{{ $instance->security_count }}</td><td colspan="2">Individual package details are not reported by SSM.</td><td>{{ $instance->checked_at?->format('j M Y, H:i') ?? 'Unknown' }}</td></tr>
@@ -271,6 +276,7 @@
             @endif
         @endforeach
         <h3 style="margin-top:22px">Recent patch history · last 30 days</h3>
+        <p class="report-note" style="margin-top:12px">Patch reductions first observed in reports during the last 30 days.</p>
         <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Fix observed at</th><th>Server</th><th>Source</th><th>Resolved patches and update details</th></tr></thead><tbody>
             @forelse ($report['patch_history'] as $event)
                 <tr>
@@ -302,9 +308,11 @@
 
     <section class="panel report-section">
         <h2>WordPress updates</h2>
+        <p class="report-note" style="margin-top:12px">Outdated plugin and core reports, plus installed version changes observed on monitored sites.</p>
         <p>{{ $report['vulnerabilities']['plugin_findings']->count() }} outdated plugin finding(s), {{ $report['vulnerabilities']['core_findings']->count() }} outdated core finding(s); {{ $report['vulnerabilities']['resolved_update_findings'] }} update finding(s) cleared in later reports.</p>
         <p class="report-note">These are available-update findings, not confirmed exploitable vulnerabilities. Amazon Inspector results are reported in the separate section above, and cleared WordPress findings are inferred from later reports rather than verified installation records. EC2 missing-patch counts decreased by an estimated {{ $report['vulnerabilities']['patches_fixed_estimate'] }} during the month.</p>
         <h3>Current Status</h3>
+        <p class="report-note" style="margin-top:12px">Latest reported installed and available versions for WordPress components.</p>
         @if ($report['vulnerabilities']['plugin_findings']->isNotEmpty() || $report['vulnerabilities']['core_findings']->isNotEmpty())
             <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>Site</th><th>Component</th><th>Installed</th><th>Available</th></tr></thead><tbody>
                 @foreach ($report['vulnerabilities']['plugin_findings']->take(12) as $finding)<tr><td>{{ $finding->site_name }}</td><td>{{ $finding->plugin_name }}</td><td>{{ $finding->current_version }}</td><td>{{ $finding->latest_version }}</td></tr>@endforeach
@@ -314,6 +322,7 @@
             <p class="muted">No outdated WordPress plugin or core reports were recorded for this month.</p>
         @endif
         <h3 style="margin-top:22px">Recent WordPress update history · last 30 days</h3>
+        <p class="report-note" style="margin-top:12px">Installed plugin or core version increases observed in reports during the last 30 days.</p>
         <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Update observed at</th><th>Site</th><th>Type</th><th>Component</th><th>Versions (before → after)</th><th>Update details</th></tr></thead><tbody>
             @forelse ($report['wordpress_update_history'] as $event)
                 <tr>
@@ -334,6 +343,7 @@
 
     <section class="panel report-section">
         <h2>Availability</h2>
+        <p class="report-note" style="margin-top:12px">Sampled uptime results for monitored assets during the reporting period.</p>
         <p>{{ $report['uptime']['percent'] === null ? 'No uptime observations are available for this month.' : number_format($report['uptime']['percent'], 3).'% observed availability across '.number_format($report['uptime']['checks']->count()).' checks.' }} Target: 99.9%.</p>
         <p class="report-note">Checks run every five minutes. This is sampled availability, not continuous monitoring; periods without probe data are excluded.</p>
         <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>Asset</th><th>Type</th><th>Availability</th><th>Checks</th></tr></thead><tbody>
@@ -345,7 +355,7 @@
         @php($topCostServices = collect($report['costs']['services'])->sortByDesc(fn ($service) => array_sum($service['data']))->take(5)->values())
         @php($monthlyCostLabels = array_map(fn ($month, $index) => $month.' · '.number_format(array_sum(array_map(fn ($service) => $service['data'][$index] ?? 0, $report['costs']['services'])), 2).' '.$report['costs']['unit'], $report['costs']['labels'], array_keys($report['costs']['labels'])))
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
-            <div><h2 style="margin-bottom:4px">AWS cost breakdown</h2></div>
+            <div><h2 style="margin-bottom:4px">AWS cost breakdown</h2><p class="report-note" style="margin-top:12px">Monthly AWS spend by service, including a simple current-month estimate.</p></div>
             <button type="button" class="secondary" onclick="window.location.reload()" aria-label="Refresh AWS cost report">Refresh costs</button>
         </div>
         @if ($report['costs']['available'])
@@ -401,13 +411,16 @@
 
     <section class="panel report-section">
         <h2>Backup policy</h2>
+        <p class="report-note" style="margin-top:12px">Reported backup schedules and restore-testing expectations for monitored systems.</p>
         <div class="scroll report-table"><table><thead><tr><th>Systems</th><th>Reported schedule</th><th>Restore test</th></tr></thead><tbody>@foreach ($report['backups'] as $backup)<tr><td>{{ $backup['asset'] }}</td><td>{{ $backup['policy'] }}</td><td>{{ $backup['restore_test'] }}</td></tr>@endforeach</tbody></table></div>
         <p class="report-note" style="margin-top:10px">Backup schedules are reported policy only and are not verified against AWS or WP Engine. Review backup jobs monthly and test one restore in an isolated environment each quarter.</p>
     </section>
 
     <section class="panel report-section">
             <h2>Config App change log · {{ $report['ticket_changes']->count() }} for {{ $report['period']['label'] }} · {{ $report['current_ticket_changes']->count() }} this month</h2>
+            <p class="report-note" style="margin-top:12px">Recorded ticket changes with the actor and before-and-after details where available.</p>
             <h3>{{ $report['period']['label'] }} changes</h3>
+            <p class="report-note" style="margin-top:12px">Ticket edits recorded during the completed reporting month.</p>
             <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Ticket</th><th>Changed by</th><th>What changed</th></tr></thead><tbody>
                 @forelse ($report['ticket_changes'] as $change)
                     <tr><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $change->actor?->name ?? 'Former user' }}</td><td>@forelse ($change->changes as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $change->action }} @endforelse</td></tr>
@@ -417,6 +430,7 @@
             </tbody></table></div>
             <p class="report-note" style="margin-top:10px">Detailed change history starts from the date this feature was deployed; older edits cannot be reconstructed.</p>
             <h3 style="margin-top:22px">{{ now()->format('F Y') }} so far</h3>
+            <p class="report-note" style="margin-top:12px">Ticket edits recorded so far in the current month.</p>
             <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Ticket</th><th>Changed by</th><th>What changed</th></tr></thead><tbody>
                 @forelse ($report['current_ticket_changes'] as $change)
                     <tr><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $change->actor?->name ?? 'Former user' }}</td><td>@forelse ($change->changes as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $change->action }} @endforelse</td></tr>
@@ -428,11 +442,15 @@
 
     <section class="panel report-section">
             <h2>Systems, access and operating guide</h2>
+            <p class="report-note" style="margin-top:12px">Reference details for dashboard access, monitored assets and routine review tasks.</p>
             <h3>Dashboard access</h3>
+            <p class="report-note" style="margin-top:12px">User roles and multi-factor authentication status for dashboard accounts.</p>
             <div class="scroll report-table"><table><thead><tr><th>User</th><th>Email</th><th>Role</th><th>Access</th><th>MFA</th></tr></thead><tbody>@forelse ($report['users'] as $user)<tr><td>{{ $user->name }}</td><td>{{ $user->email }}</td><td>{{ ucfirst($user->role) }}</td><td>{{ $user->role === 'admin' ? 'Manage dashboard, assets, settings and users' : 'View monitoring dashboard' }}</td><td>{{ $user->two_factor_confirmed_at ? 'Enabled' : 'Not enrolled' }}</td></tr>@empty<tr><td colspan="5">No dashboard users.</td></tr>@endforelse</tbody></table></div>
             <h3>WordPress site inventory</h3>
+            <p class="report-note" style="margin-top:12px">Registered WordPress sites and their latest reported monitoring and version status.</p>
             <div class="scroll report-table"><table><thead><tr><th>Site</th><th>URL</th><th>Monitoring</th><th>Core</th><th>PHP</th></tr></thead><tbody>@forelse ($report['sites'] as $site)<tr><td>{{ $site->name }}</td><td><a href="{{ $site->url }}" rel="noreferrer">{{ $site->url }}</a></td><td>{{ $site->is_active ? 'Active' : 'Disabled' }}</td><td>{{ $site->last_core_status ?? 'No report' }}</td><td>{{ $site->last_php_version ?? 'No report' }}</td></tr>@empty<tr><td colspan="5">No WordPress sites registered.</td></tr>@endforelse</tbody></table></div>
             <h3>EC2 inventory</h3>
+            <p class="report-note" style="margin-top:12px">EC2 instances with their latest probe availability and patch data.</p>
             <div class="scroll report-table"><table><thead><tr><th>Instance</th><th>Region</th><th>Availability</th><th>Pending patches</th><th>Security patches</th></tr></thead><tbody>
                 @forelse ($report['ec2_inventory'] as $instance)
                     @php($patch = $report['ec2']['latest']->get($instance->asset_key))
@@ -442,6 +460,7 @@
                 @endforelse
             </tbody></table></div>
             <h3>Essential tasks</h3>
+            <p class="report-note" style="margin-top:12px">Recurring operational checks for security, backups, access and reporting.</p>
             <ol class="report-list">
                 <li><strong>WordPress:</strong> register the public HTTPS URL, install the reporter plugin, configure its endpoint/token, then send a test report.</li>
                 <li><strong>EC2:</strong> review SSM patch status. The admin dashboard's patch action installs updates and may reboot instances; schedule it carefully.</li>
