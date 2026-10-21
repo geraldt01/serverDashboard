@@ -417,14 +417,25 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Oct 2026 \u00b7 118.75 USD')
             ->assertSee('Current month to date: 118.75 USD')
             ->assertSee('Estimated month-end: '.number_format(round($monthToDateCost / $today->day * $today->daysInMonth, 2), 2).' USD')
-            ->assertSee('does not account for future usage changes')
+            ->assertDontSee('Live snapshot of active Amazon Inspector package vulnerability findings')
+            ->assertDontSee('Most recent pending update counts and details reported for each server')
+            ->assertDontSee('Patch reductions first observed in reports during the last 30 days')
+            ->assertDontSee('Times show when a report first observed fewer pending patches')
+            ->assertDontSee('These are available-update findings, not confirmed exploitable vulnerabilities')
+            ->assertDontSee('Latest reported installed and available versions for WordPress components')
+            ->assertDontSee('Installed plugin or core version increases observed in reports during the last 30 days')
+            ->assertDontSee('Checks run every five minutes')
+            ->assertDontSee('Estimate uses the current month')
+            ->assertDontSee('Fetched live from AWS Cost Explorer')
+            ->assertDontSee('Backup schedules are reported policy only')
+            ->assertDontSee('User roles and multi-factor authentication status for dashboard accounts')
             ->assertSee('Amazon EC2')
             ->assertSee('Amazon Lambda')
             ->assertDontSee('Amazon DynamoDB')
             ->assertDontSee('Forecast for remaining days')
             ->assertDontSee('Projected monthly cost')
             ->assertSee('Refresh costs')
-            ->assertSee('not real-time');
+            ->assertDontSee('not real-time');
     }
 
     public function test_ticket_created_this_month_appears_in_current_month_change_log(): void
