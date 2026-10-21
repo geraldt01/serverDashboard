@@ -343,6 +343,7 @@
 
     <section class="panel report-section" id="aws-costs">
         @php($topCostServices = collect($report['costs']['services'])->sortByDesc(fn ($service) => array_sum($service['data']))->take(5)->values())
+        @php($monthlyCostLabels = array_map(fn ($month, $index) => $month.' · '.number_format(array_sum(array_map(fn ($service) => $service['data'][$index] ?? 0, $report['costs']['services'])), 2).' '.$report['costs']['unit'], $report['costs']['labels'], array_keys($report['costs']['labels'])))
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
             <div><h2 style="margin-bottom:4px">AWS cost breakdown</h2><p class="muted">{{ $report['costs']['range_label'] ?? 'Last 6 months' }} · Grouped by AWS service</p></div>
             <button type="button" class="secondary" onclick="window.location.reload()" aria-label="Refresh AWS cost report">Refresh costs</button>
@@ -353,7 +354,7 @@
                 <p class="muted" style="margin:4px 0">Current month to date: {{ number_format($report['costs']['current_month_total'], 2) }} {{ $report['costs']['unit'] }} · Estimated month-end: {{ number_format($report['costs']['month_end_estimate'], 2) }} {{ $report['costs']['unit'] }}</p>
                 <p class="report-note">Estimate uses the current month’s average daily cost and does not account for future usage changes. AWS billing data can be delayed.</p>
             @endif
-            <div style="height:300px;position:relative"><canvas id="aws-cost-chart" role="img" aria-label="Stacked monthly AWS cost chart by service"></canvas></div>
+            <div style="height:300px;position:relative"><canvas id="aws-cost-chart" role="img" aria-label="Stacked monthly AWS cost chart by service with total cost beside each month"></canvas></div>
             <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>AWS service</th><th>Total for period</th></tr></thead><tbody>
                 @foreach ($topCostServices as $service)<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ $service['color'] }};margin-right:7px"></span>{{ $service['name'] }}</td><td>{{ number_format(array_sum($service['data']), 2) }} {{ $report['costs']['unit'] }}</td></tr>@endforeach
             </tbody></table></div>
@@ -361,7 +362,7 @@
                 (() => {
                     const canvas = document.getElementById('aws-cost-chart');
                     if (!canvas || !window.Chart) return;
-                    const labels = @json($report['costs']['labels']);
+                    const labels = @json($monthlyCostLabels);
                     const services = @json($topCostServices);
                     new Chart(canvas, {
                         type: 'bar',

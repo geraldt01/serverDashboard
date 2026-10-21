@@ -412,6 +412,7 @@ class MonthlyReportTest extends TestCase
             ->assertSee('aws-cost-chart')
             ->assertSee('AWS cost breakdown')
             ->assertSee('Total cost: 218.75 USD')
+            ->assertSee('Oct 2026 \u00b7 118.75 USD')
             ->assertSee('Current month to date: 118.75 USD')
             ->assertSee('Estimated month-end: '.number_format(round($monthToDateCost / $today->day * $today->daysInMonth, 2), 2).' USD')
             ->assertSee('does not account for future usage changes')
