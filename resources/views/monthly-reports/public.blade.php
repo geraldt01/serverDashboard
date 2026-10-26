@@ -80,6 +80,9 @@
     .report-note { padding:10px 12px; color:#62546b; background:#faf7fb; border-left:3px solid #c81e78; font-size:12px; }
     .report-list { margin:0; padding-left:19px; }
     .report-list li { margin:6px 0; }
+    .report-guide { margin:16px 0; font-size:13px; line-height:1.6; }
+    .report-guide dt { margin-top:10px; font-weight:700; }
+    .report-guide dd { margin:2px 0 0; }
     .report-details { border-top:1px solid #e9e5f2; }
     .report-details summary { padding:15px 4px; color:#8d185d; font-weight:700; cursor:pointer; }
     .report-details[open] summary { border-bottom:1px solid #e9e5f2; margin-bottom:14px; }
@@ -118,7 +121,19 @@
 
     <section class="panel report-section">
         <h2>What needs attention</h2>
-        <p class="report-note" style="margin-top:12px">Prioritized risks and follow-up actions identified from the available monitoring data.</p>
+        <p class="report-note" style="margin-top:12px">This report brings together security findings, system health, AWS spending, backup information and Config App changes to support monthly IT reviews and follow-up decisions. The reporting month is shown at the top; current status, recent history and month-to-date figures are labelled separately. Missing data does not confirm that a system is healthy or protected.</p>
+        <dl class="report-guide">
+            <dt>Monthly summary</dt><dd>Headline figures for monitored EC2 instances, pending server updates, registered WordPress sites, reporting-month availability and AWS spending across the displayed cost period.</dd>
+            <dt>What needs attention</dt><dd>Risks and follow-up actions identified from the available monitoring data, listed below.</dd>
+            <dt>Amazon Inspector vulnerabilities</dt><dd>Active AWS package and code vulnerability findings, including severity, affected resources, available fixes and finding age.</dd>
+            <dt>Server patch status</dt><dd>Latest reported pending server updates and security updates, plus observed reductions in pending patches during the last 30 days. History timestamps show when a report first detected the reduction, not the exact installation time.</dd>
+            <dt>WordPress updates</dt><dd>Current plugin and core update findings, plus installed-version increases first observed during the last 30 days.</dd>
+            <dt>Availability</dt><dd>Availability calculated from recorded checks during the reporting month, with per-asset results compared against the 99.9% target.</dd>
+            <dt>AWS cost breakdown</dt><dd>Monthly spending by service across six completed months and the current month, a month-end estimate, and current-month-to-date costs for the services listed in the table.</dd>
+            <dt>Backup policy</dt><dd>Configured AWS Backup plans and recent job outcomes, alongside reported WP Engine backup schedules and restore-testing expectations. Reported policies alone do not verify successful backups or restores.</dd>
+            <dt>Config App change log</dt><dd>One summary per ticket for the selected month, combining recorded edits, contributors and first-to-latest field values.</dd>
+            <dt>Systems, access and operating guide</dt><dd>Dashboard users, roles and MFA enrolment; WordPress and EC2 inventories; and routine monitoring, maintenance and report-sharing tasks.</dd>
+        </dl>
         <ul class="report-list">@foreach ($report['risks'] as $risk)<li>{{ $risk }}</li>@endforeach</ul>
     </section>
 
