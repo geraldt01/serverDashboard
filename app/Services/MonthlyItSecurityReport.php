@@ -84,6 +84,8 @@ class MonthlyItSecurityReport
             'webpage_checks' => $webpageChecks,
             'ticket_changes' => $ticketChanges,
             'current_ticket_changes' => $currentTicketChanges,
+            'ticket_change_history' => SupportTicketChange::query()->with(['ticket', 'actor'])
+                ->where('created_at', '<=', CarbonImmutable::now())->latest()->orderByDesc('id')->get(),
             'vulnerabilities' => [
                 'plugin_findings' => $outdatedPlugins,
                 'core_findings' => $outdatedCore,

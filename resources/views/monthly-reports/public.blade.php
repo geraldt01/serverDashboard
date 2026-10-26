@@ -28,6 +28,11 @@
     .report-pagination { display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:10px; color:#736c88; font-size:12px; }
     .report-pagination button { padding:6px 10px; font-size:12px; }
     .report-pagination button:disabled { opacity:.45; cursor:not-allowed; }
+    .change-log-filters { display:flex; flex-wrap:wrap; gap:12px; margin:16px 0; }
+    .change-log-filters label { flex:1 1 220px; min-width:0; }
+    .change-log-filters input, .change-log-filters select { width:100%; box-sizing:border-box; }
+    .change-log-table { overflow-x:auto; }
+    .change-log-table td { overflow-wrap:anywhere; }
     .patch-details-preview { max-width:480px; overflow-wrap:anywhere; }
     .patch-details-more { margin-top:6px; padding:5px 9px; font-size:12px; }
     .patch-details-dialog { width:min(680px,calc(100vw - 32px)); max-height:85vh; box-sizing:border-box; padding:20px; border:0; border-radius:8px; overflow:auto; }
@@ -95,6 +100,8 @@
     @php
         $hasUrgentRisk = collect($report['risks'])->contains(fn ($risk) => str_contains(strtolower($risk), 'security updates') || str_contains(strtolower($risk), 'below the 99.9%') || str_contains(strtolower($risk), 'amazon inspector reports'));
         $uptimeLabel = $report['uptime']['percent'] === null ? 'Not measured' : number_format($report['uptime']['percent'], 3).'%';
+        $changeLogMonths = $report['ticket_change_history']->toBase()->map(fn ($change) => $change->created_at->format('Y-m'))
+            ->push(now()->format('Y-m'), $report['period']['start']->format('Y-m'))->unique()->sortDesc()->values();
     @endphp
     <div class="report-status">
         <strong>{{ $hasUrgentRisk ? 'Attention required' : 'Monthly overview' }}</strong>
@@ -345,6 +352,8 @@
     <section class="panel report-section" id="aws-costs">
         @php($topCostServices = collect($report['costs']['services'])->sortByDesc(fn ($service) => array_sum($service['data']))->take(5)->values())
         @php($monthlyCostLabels = array_map(fn ($month, $index) => $month.' · '.number_format(array_sum(array_map(fn ($service) => $service['data'][$index] ?? 0, $report['costs']['services'])), 2).' '.$report['costs']['unit'], $report['costs']['labels'], array_keys($report['costs']['labels'])))
+        @php($costTableMonth = $report['costs']['refreshed_at']->format('M Y'))
+        @php($costTableMonthIndex = array_search($costTableMonth, $report['costs']['labels'], true))
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">
             <div><h2 style="margin-bottom:4px">AWS cost breakdown</h2><p class="report-note" style="margin-top:12px">Monthly AWS spend by service, including a simple current-month estimate.</p></div>
             <button type="button" class="secondary" onclick="window.location.reload()" aria-label="Refresh AWS cost report">Refresh costs</button>
@@ -354,8 +363,8 @@
                 <p class="muted" style="margin:4px 0">Current month to date: {{ number_format($report['costs']['current_month_total'], 2) }} {{ $report['costs']['unit'] }} · Estimated month-end: {{ number_format($report['costs']['month_end_estimate'], 2) }} {{ $report['costs']['unit'] }}</p>
             @endif
             <div style="height:300px;position:relative"><canvas id="aws-cost-chart" role="img" aria-label="Stacked monthly AWS cost chart by service with total cost beside each month"></canvas></div>
-            <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>AWS service</th><th>Total for period</th></tr></thead><tbody>
-                @foreach ($topCostServices as $service)<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ $service['color'] }};margin-right:7px"></span>{{ $service['name'] }}</td><td>{{ number_format(array_sum($service['data']), 2) }} {{ $report['costs']['unit'] }}</td></tr>@endforeach
+            <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>AWS service</th><th>Total for {{ $costTableMonth }} to date</th></tr></thead><tbody>
+                @foreach ($topCostServices as $service)<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ $service['color'] }};margin-right:7px"></span>{{ $service['name'] }}</td><td>{{ $costTableMonthIndex === false ? 'Unavailable' : number_format($service['data'][$costTableMonthIndex] ?? 0, 2).' '.$report['costs']['unit'] }}</td></tr>@endforeach
             </tbody></table></div>
             <script>
                 (() => {
@@ -429,28 +438,31 @@
         <div class="scroll report-table"><table><thead><tr><th>Systems</th><th>Reported schedule</th><th>Restore test</th></tr></thead><tbody>@foreach ($report['backups'] as $backup)<tr><td>{{ $backup['asset'] }}</td><td>{{ $backup['policy'] }}</td><td>{{ $backup['restore_test'] }}</td></tr>@endforeach</tbody></table></div>
     </section>
 
-    <section class="panel report-section">
-            <h2>Config App change log · {{ $report['ticket_changes']->count() }} for {{ $report['period']['label'] }} · {{ $report['current_ticket_changes']->count() }} this month</h2>
+    <section class="panel report-section" id="config-app-change-log">
+            <h2>Config App change log</h2>
             <p class="report-note" style="margin-top:12px">Recorded ticket changes with the actor and before-and-after details where available.</p>
-            <h3>{{ $report['period']['label'] }} changes</h3>
-            <p class="report-note" style="margin-top:12px">Ticket edits recorded during the completed reporting month.</p>
-            <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Ticket</th><th>Changed by</th><th>What changed</th></tr></thead><tbody>
-                @forelse ($report['ticket_changes'] as $change)
-                    <tr><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $change->actor?->name ?? 'Former user' }}</td><td>@forelse ($change->changes as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $change->action }} @endforelse</td></tr>
-                @empty
-                    <tr><td colspan="4">No ticket changes were recorded this month.</td></tr>
-                @endforelse
+            <div class="change-log-filters">
+                <label for="change-log-month">Month
+                    <select id="change-log-month" data-change-log-month>
+                        @foreach ($changeLogMonths as $changeLogMonth)
+                            <option value="{{ $changeLogMonth }}" @selected($changeLogMonth === now()->format('Y-m'))>{{ \Carbon\CarbonImmutable::createFromFormat('!Y-m', $changeLogMonth)->format('F Y') }}{{ $changeLogMonth === now()->format('Y-m') ? ' so far' : '' }}</option>
+                        @endforeach
+                    </select>
+                </label>
+                <label for="change-log-search">Search changes
+                    <input id="change-log-search" type="search" data-change-log-search>
+                </label>
+            </div>
+            <h3 data-change-log-heading>{{ now()->format('F Y') }} so far</h3>
+            <p class="muted" data-change-log-count role="status"></p>
+            <div class="scroll report-table change-log-table" data-report-pagination data-page-size="10" data-change-log-table><table><thead><tr><th>Date</th><th>Ticket</th><th>Changed by</th><th>What changed</th></tr></thead><tbody>
+                @foreach ($report['ticket_change_history'] as $change)
+                    <tr data-change-month="{{ $change->created_at->format('Y-m') }}" @if ($change->created_at->format('Y-m') !== now()->format('Y-m')) hidden @endif><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $change->actor?->name ?? 'Former user' }}</td><td>@forelse ($change->changes as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $change->action }} @endforelse</td></tr>
+                @endforeach
             </tbody></table></div>
+            <p data-change-log-empty hidden>No ticket changes match the selected month and search.</p>
+            <div class="report-pagination" data-pagination-controls aria-label="Config App change log pagination"><button type="button" data-page-previous aria-label="Previous change log page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next change log page">Next</button></div>
             <p class="report-note" style="margin-top:10px">Detailed change history starts from the date this feature was deployed; older edits cannot be reconstructed.</p>
-            <h3 style="margin-top:22px">{{ now()->format('F Y') }} so far</h3>
-            <p class="report-note" style="margin-top:12px">Ticket edits recorded so far in the current month.</p>
-            <div class="scroll report-table"><table><thead><tr><th>Date</th><th>Ticket</th><th>Changed by</th><th>What changed</th></tr></thead><tbody>
-                @forelse ($report['current_ticket_changes'] as $change)
-                    <tr><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $change->actor?->name ?? 'Former user' }}</td><td>@forelse ($change->changes as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $change->action }} @endforelse</td></tr>
-                @empty
-                    <tr><td colspan="4">No ticket changes recorded so far this month.</td></tr>
-                @endforelse
-            </tbody></table></div>
     </section>
 
     <section class="panel report-section">
@@ -653,8 +665,10 @@
         const selectedMachineName = tableWrap.parentElement.querySelector('[data-inspector-selected-machine-name]');
         const clearMachineFilter = tableWrap.parentElement.querySelector('[data-clear-inspector-machine]');
         const pageSize = Number(tableWrap.dataset.pageSize) || 5;
+        const monthFilter = tableWrap.parentElement.querySelector('[data-change-log-month]');
+        const searchFilter = tableWrap.parentElement.querySelector('[data-change-log-search]');
 
-        if (!controls || (rows.length <= pageSize && filterButtons.length === 0) || (rows.length === 1 && rows[0].querySelector('td[colspan]'))) {
+        if (!controls || (!monthFilter && rows.length <= pageSize && filterButtons.length === 0) || (rows.length === 1 && rows[0].querySelector('td[colspan]'))) {
             controls?.remove();
             return;
         }
@@ -673,7 +687,10 @@
                 const machineKeys = row.dataset.machineKeys ? row.dataset.machineKeys.split('~') : [];
                 const machineMatches = selectedMachineKey === null || machineKeys.includes(selectedMachineKey);
 
-                return severityMatches && machineMatches;
+                const monthMatches = !monthFilter || row.dataset.changeMonth === monthFilter.value;
+                const searchMatches = !searchFilter || row.textContent.toLocaleLowerCase().includes(searchFilter.value.trim().toLocaleLowerCase());
+
+                return severityMatches && machineMatches && monthMatches && searchMatches;
             });
             pageCount = Math.max(1, Math.ceil(matchingRows.length / pageSize));
             page = Math.min(page, pageCount - 1);
@@ -694,6 +711,11 @@
             previous.disabled = page === 0;
             next.disabled = page === pageCount - 1;
             controls.hidden = matchingRows.length <= pageSize;
+            if (monthFilter) {
+                tableWrap.parentElement.querySelector('[data-change-log-heading]').textContent = monthFilter.selectedOptions[0].textContent;
+                tableWrap.parentElement.querySelector('[data-change-log-count]').textContent = `${matchingRows.length} change(s)`;
+                tableWrap.parentElement.querySelector('[data-change-log-empty]').hidden = matchingRows.length > 0;
+            }
             if (machineFilterStatus) {
                 machineFilterStatus.hidden = selectedMachineKey === null;
             }
@@ -703,6 +725,12 @@
             });
         };
 
+        [monthFilter, searchFilter].forEach((filter) => {
+            filter?.addEventListener(filter === monthFilter ? 'change' : 'input', () => {
+                page = 0;
+                renderPage();
+            });
+        });
         filterButtons.forEach((button) => {
             button.addEventListener('click', () => {
                 selectedSeverity = button.dataset.inspectorSeverity;

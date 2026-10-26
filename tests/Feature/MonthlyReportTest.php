@@ -384,6 +384,7 @@ class MonthlyReportTest extends TestCase
 
     public function test_public_report_shows_historical_cost_breakdown(): void
     {
+        $this->travelTo(CarbonImmutable::parse('2026-10-27 12:00:00'));
         $settings = MonthlyReportSetting::current();
         $today = CarbonImmutable::now();
         $monthToDateCost = 118.75;
@@ -422,10 +423,12 @@ class MonthlyReportTest extends TestCase
         ]);
         $this->app->instance(AwsCostReport::class, $costReport);
 
-        $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
+        $response = $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
             ->assertOk()
             ->assertSee('aws-cost-chart')
             ->assertSee('AWS cost breakdown')
+            ->assertSee('Total for Oct 2026 to date')
+            ->assertDontSee('Total for period')
             ->assertDontSee('Total cost: 218.75 USD')
             ->assertDontSee('Grouped by AWS service')
             ->assertDontSee('Last 6 months + current month to date')
@@ -455,6 +458,16 @@ class MonthlyReportTest extends TestCase
             ->assertDontSee('Projected monthly cost')
             ->assertSee('Refresh costs')
             ->assertDontSee('not real-time');
+
+        $document = new \DOMDocument();
+        @$document->loadHTML($response->getContent());
+        $xpath = new \DOMXPath($document);
+        $costCells = $xpath->query('//*[@id="aws-costs"]//tbody/tr/td[2]');
+        $this->assertSame(5, $costCells->length);
+        $this->assertSame('118.75 USD', $costCells->item(0)->textContent);
+        foreach (range(1, 4) as $index) {
+            $this->assertSame('0.00 USD', $costCells->item($index)->textContent);
+        }
     }
 
     public function test_ticket_created_this_month_appears_in_current_month_change_log(): void
@@ -476,9 +489,61 @@ class MonthlyReportTest extends TestCase
 
         $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
             ->assertOk()
-            ->assertSee($today->subMonth()->format('F Y').' changes')
+            ->assertSee('value="'.$today->subMonth()->format('Y-m').'"', false)
             ->assertSee($today->format('F Y').' so far')
             ->assertSee('Production change ticket');
+    }
+
+    public function test_change_log_has_one_month_filtered_paginated_table_with_historical_changes(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-27 12:00:00'));
+        $settings = MonthlyReportSetting::current();
+        $ticket = SupportTicket::create([
+            'title' => 'Monthly history ticket',
+            'issue' => 'Configuration history',
+            'reported_by' => 'Operator',
+            'status' => 'open',
+        ]);
+        foreach (range(1, 23) as $number) {
+            SupportTicketChange::forceCreate([
+                'support_ticket_id' => $ticket->id,
+                'actor_id' => null,
+                'action' => 'updated',
+                'changes' => ['title' => ['before' => 'Old title', 'after' => 'October change '.$number]],
+                'created_at' => now()->subMinutes($number),
+            ]);
+        }
+        foreach (['2026-08-12', '2026-09-15', '2026-11-01'] as $date) {
+            SupportTicketChange::forceCreate([
+                'support_ticket_id' => $ticket->id,
+                'actor_id' => null,
+                'action' => 'updated',
+                'changes' => ['title' => ['before' => null, 'after' => 'Change on '.$date]],
+                'created_at' => CarbonImmutable::parse($date),
+            ]);
+        }
+
+        $response = $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
+            ->assertOk()
+            ->assertSee('data-change-log-month', false)
+            ->assertSee('data-change-log-search', false)
+            ->assertSee('value="2026-10" selected', false)
+            ->assertSee('August 2026')
+            ->assertSee('September 2026')
+            ->assertSee('October change 23')
+            ->assertSee('Change on 2026-08-12')
+            ->assertDontSee('Change on 2026-11-01')
+            ->assertSee('Next change log page')
+            ->assertSee('Monthly history ticket')
+            ->assertSee('Former user');
+        $document = new \DOMDocument();
+        @$document->loadHTML($response->getContent());
+        $xpath = new \DOMXPath($document);
+        $this->assertSame(1, $xpath->query('//*[@id="config-app-change-log"]//table')->length);
+        $this->assertSame(25, $xpath->query('//*[@data-change-log-table]//tbody/tr')->length);
+        $this->assertSame(2, $xpath->query('//*[@data-change-log-table]//tbody/tr[@hidden]')->length);
+        $this->assertSame('10', $xpath->query('//*[@data-change-log-table]')->item(0)->getAttribute('data-page-size'));
+        $this->assertCount(25, app(MonthlyItSecurityReport::class)->build()['ticket_change_history']);
     }
 
     public function test_current_wordpress_findings_use_the_latest_report_not_the_selected_month_snapshot(): void
@@ -679,7 +744,7 @@ class MonthlyReportTest extends TestCase
         $content = $response->getContent();
 
         $this->assertSame(2, substr_count($content, 'data-page-size="5"'));
-        $this->assertSame(2, substr_count($content, 'class="report-pagination" data-pagination-controls'));
+        $this->assertSame(3, substr_count($content, 'class="report-pagination" data-pagination-controls'));
         $this->assertStringContainsString('Next server patch history page', $content);
         $this->assertStringContainsString('Next WordPress update history page', $content);
         $this->assertStringContainsString('History Server 6', $content);
