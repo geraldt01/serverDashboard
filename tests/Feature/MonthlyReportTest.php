@@ -530,7 +530,9 @@ class MonthlyReportTest extends TestCase
             ->assertSee('value="2026-10" selected', false)
             ->assertSee('August 2026')
             ->assertSee('September 2026')
-            ->assertSee('October change 23')
+            ->assertSee('October change 1')
+            ->assertDontSee('October change 23')
+            ->assertSee('23 recorded changes')
             ->assertSee('Change on 2026-08-12')
             ->assertDontSee('Change on 2026-11-01')
             ->assertSee('Next change log page')
@@ -540,10 +542,47 @@ class MonthlyReportTest extends TestCase
         @$document->loadHTML($response->getContent());
         $xpath = new \DOMXPath($document);
         $this->assertSame(1, $xpath->query('//*[@id="config-app-change-log"]//table')->length);
-        $this->assertSame(25, $xpath->query('//*[@data-change-log-table]//tbody/tr')->length);
+        $this->assertSame(3, $xpath->query('//*[@data-change-log-table]//tbody/tr')->length);
         $this->assertSame(2, $xpath->query('//*[@data-change-log-table]//tbody/tr[@hidden]')->length);
         $this->assertSame('10', $xpath->query('//*[@data-change-log-table]')->item(0)->getAttribute('data-page-size'));
         $this->assertCount(25, app(MonthlyItSecurityReport::class)->build()['ticket_change_history']);
+    }
+
+    public function test_ticket_summaries_combine_fields_and_actors_without_merging_different_tickets(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-27 12:00:00'));
+        $firstActor = User::factory()->create(['name' => 'First editor']);
+        $lastActor = User::factory()->create(['name' => 'Last editor']);
+        $firstTicket = SupportTicket::create([
+            'title' => 'Shared title', 'issue' => 'First ticket', 'reported_by' => 'Operator', 'status' => 'closed',
+        ]);
+        $secondTicket = SupportTicket::create([
+            'title' => 'Shared title', 'issue' => 'Second ticket', 'reported_by' => 'Operator', 'status' => 'open',
+        ]);
+        SupportTicketChange::forceCreate([
+            'support_ticket_id' => $firstTicket->id, 'actor_id' => $firstActor->id, 'action' => 'created',
+            'changes' => ['title' => ['before' => null, 'after' => 'Initial title'], 'status' => ['before' => null, 'after' => 'open']],
+            'created_at' => now()->subHours(2),
+        ]);
+        $latest = SupportTicketChange::forceCreate([
+            'support_ticket_id' => $firstTicket->id, 'actor_id' => $lastActor->id, 'action' => 'updated',
+            'changes' => ['title' => ['before' => 'Initial title', 'after' => 'Shared title'], 'status' => ['before' => 'open', 'after' => 'closed']],
+            'created_at' => now()->subHour(),
+        ]);
+        SupportTicketChange::create([
+            'support_ticket_id' => $secondTicket->id, 'actor_id' => null, 'action' => 'created', 'changes' => [],
+        ]);
+
+        $report = app(MonthlyItSecurityReport::class)->build();
+        $this->assertCount(3, $report['ticket_change_history']);
+        $this->assertCount(2, $report['ticket_change_summaries']);
+        $summary = $report['ticket_change_summaries']->first(fn ($summary) => $summary['latest']->support_ticket_id === $firstTicket->id);
+        $this->assertSame($latest->id, $summary['latest']->id);
+        $this->assertSame(2, $summary['count']);
+        $this->assertSame(['before' => null, 'after' => 'Shared title'], $summary['changes']['title']);
+        $this->assertSame(['before' => null, 'after' => 'closed'], $summary['changes']['status']);
+        $this->assertStringContainsString('First editor', $summary['actors']);
+        $this->assertStringContainsString('Last editor', $summary['actors']);
     }
 
     public function test_current_wordpress_findings_use_the_latest_report_not_the_selected_month_snapshot(): void

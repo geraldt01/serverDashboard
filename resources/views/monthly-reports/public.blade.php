@@ -455,9 +455,10 @@
             </div>
             <h3 data-change-log-heading>{{ now()->format('F Y') }} so far</h3>
             <p class="muted" data-change-log-count role="status"></p>
-            <div class="scroll report-table change-log-table" data-report-pagination data-page-size="10" data-change-log-table><table><thead><tr><th>Date</th><th>Ticket</th><th>Changed by</th><th>What changed</th></tr></thead><tbody>
-                @foreach ($report['ticket_change_history'] as $change)
-                    <tr data-change-month="{{ $change->created_at->format('Y-m') }}" @if ($change->created_at->format('Y-m') !== now()->format('Y-m')) hidden @endif><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $change->actor?->name ?? 'Former user' }}</td><td>@forelse ($change->changes as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $change->action }} @endforelse</td></tr>
+            <div class="scroll report-table change-log-table" data-report-pagination data-page-size="10" data-change-log-table><table><thead><tr><th>Last changed</th><th>Ticket</th><th>Changed by</th><th>Summary</th></tr></thead><tbody>
+                @foreach ($report['ticket_change_summaries'] as $summary)
+                    @php($change = $summary['latest'])
+                    <tr data-change-month="{{ $change->created_at->format('Y-m') }}" @if ($change->created_at->format('Y-m') !== now()->format('Y-m')) hidden @endif><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $summary['actors'] }}</td><td>@forelse ($summary['changes'] as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $summary['actions'] }} @endforelse<small>{{ $summary['count'] }} recorded {{ $summary['count'] === 1 ? 'change' : 'changes' }}</small></td></tr>
                 @endforeach
             </tbody></table></div>
             <p data-change-log-empty hidden>No ticket changes match the selected month and search.</p>

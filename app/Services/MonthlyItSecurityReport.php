@@ -72,6 +72,29 @@ class MonthlyItSecurityReport
         $costs = app(AwsCostReport::class)->build();
         $inspector = app(AwsInspectorReport::class)->build();
         $awsBackups = app(AwsBackupReport::class)->build();
+        $ticketChangeHistory = SupportTicketChange::query()->with(['ticket', 'actor'])
+            ->where('created_at', '<=', CarbonImmutable::now())->latest()->orderByDesc('id')->get();
+        $ticketChangeSummaries = $ticketChangeHistory
+            ->groupBy(fn ($change) => $change->created_at->format('Y-m').':'.$change->support_ticket_id)
+            ->map(function ($changes) {
+                $fields = [];
+                foreach ($changes->reverse() as $change) {
+                    foreach ($change->changes ?? [] as $field => $values) {
+                        if (! array_key_exists($field, $fields)) {
+                            $fields[$field] = ['before' => $values['before'] ?? null];
+                        }
+                        $fields[$field]['after'] = $values['after'] ?? null;
+                    }
+                }
+
+                return [
+                    'latest' => $changes->first(),
+                    'changes' => $fields,
+                    'actors' => $changes->map(fn ($change) => $change->actor?->name ?? 'Former user')->unique()->implode(', '),
+                    'actions' => $changes->pluck('action')->unique()->implode(', '),
+                    'count' => $changes->count(),
+                ];
+            })->values();
 
         return [
             'period' => $period,
@@ -84,8 +107,8 @@ class MonthlyItSecurityReport
             'webpage_checks' => $webpageChecks,
             'ticket_changes' => $ticketChanges,
             'current_ticket_changes' => $currentTicketChanges,
-            'ticket_change_history' => SupportTicketChange::query()->with(['ticket', 'actor'])
-                ->where('created_at', '<=', CarbonImmutable::now())->latest()->orderByDesc('id')->get(),
+            'ticket_change_history' => $ticketChangeHistory,
+            'ticket_change_summaries' => $ticketChangeSummaries,
             'vulnerabilities' => [
                 'plugin_findings' => $outdatedPlugins,
                 'core_findings' => $outdatedCore,
