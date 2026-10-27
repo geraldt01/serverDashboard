@@ -483,11 +483,46 @@
             <div class="scroll report-table change-log-table" data-report-pagination data-page-size="10" data-change-log-table><table><thead><tr><th>Last changed</th><th>Ticket</th><th>Changed by</th><th>Summary</th></tr></thead><tbody>
                 @foreach ($report['ticket_change_summaries'] as $summary)
                     @php($change = $summary['latest'])
-                    <tr data-change-month="{{ $change->created_at->format('Y-m') }}" @if ($change->created_at->format('Y-m') !== now()->format('Y-m')) hidden @endif><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $summary['actors'] }}</td><td>@forelse ($summary['changes'] as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $summary['actions'] }} @endforelse<small>{{ $summary['count'] }} recorded {{ $summary['count'] === 1 ? 'change' : 'changes' }}</small></td></tr>
+                    <tr data-change-month="{{ $change->created_at->format('Y-m') }}" @if ($change->created_at->format('Y-m') !== now()->format('Y-m')) hidden @endif><td>{{ $change->created_at->format('j M Y, H:i') }}</td><td>{{ $change->ticket?->title ?? 'Deleted ticket' }}</td><td>{{ $summary['actors'] }}</td><td>@forelse ($summary['changes'] as $field => $values)<strong>{{ ucfirst(str_replace('_', ' ', $field)) }}:</strong> {{ \Illuminate\Support\Str::limit((string) ($values['before'] ?? '—'), 70) }} → {{ \Illuminate\Support\Str::limit((string) ($values['after'] ?? '—'), 70) }}<br>@empty Ticket {{ $summary['actions'] }} @endforelse<small>{{ $summary['count'] }} recorded {{ $summary['count'] === 1 ? 'change' : 'changes' }}</small><div><button type="button" class="secondary patch-details-more" data-open-patch-details="ticket-details-{{ $loop->index }}" aria-haspopup="dialog" aria-controls="ticket-details-{{ $loop->index }}">Read more</button></div></td></tr>
                 @endforeach
             </tbody></table></div>
             <p data-change-log-empty hidden>No ticket changes match the selected month and search.</p>
             <div class="report-pagination" data-pagination-controls aria-label="Digital App Support Tickets pagination"><button type="button" data-page-previous aria-label="Previous change log page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next change log page">Next</button></div>
+            @foreach ($report['ticket_change_summaries'] as $summary)
+                @php($ticket = $summary['latest']->ticket)
+                <dialog class="patch-details-dialog inspector-finding-dialog" id="ticket-details-{{ $loop->index }}" aria-labelledby="ticket-details-title-{{ $loop->index }}">
+                    <h3 id="ticket-details-title-{{ $loop->index }}">Support Ticket #{{ $summary['latest']->support_ticket_id }}: {{ $ticket?->title ?? 'Deleted ticket' }}</h3>
+                    @if ($ticket)
+                        <h4>Current ticket details</h4>
+                        <dl class="inspector-detail-meta">
+                            <dt>Status</dt><dd>{{ \App\Models\SupportTicket::STATUSES[$ticket->status] ?? ucfirst(str_replace('_', ' ', $ticket->status)) }}</dd>
+                            <dt>Reported by</dt><dd>{{ $ticket->reported_by }}</dd>
+                            <dt>Logged by</dt><dd>{{ $ticket->creator?->name ?? 'Former user' }}</dd>
+                            <dt>Created</dt><dd>{{ $ticket->created_at?->format('j M Y, H:i') ?? 'Not recorded' }}</dd>
+                            <dt>Last updated</dt><dd>{{ $ticket->updated_at?->format('j M Y, H:i') ?? 'Not recorded' }}</dd>
+                            <dt>Started</dt><dd>{{ $ticket->started_at?->format('j M Y, H:i') ?? 'Not started' }}</dd>
+                            <dt>Finished</dt><dd>{{ $ticket->finished_at?->format('j M Y, H:i') ?? 'Not finished' }}</dd>
+                        </dl>
+                        <h4>Issue</h4>
+                        <div class="patch-details-text">{{ $ticket->issue }}</div>
+                    @else
+                        <p>This ticket has been deleted. Recorded changes are shown below.</p>
+                    @endif
+                    <h4>{{ $summary['latest']->created_at->format('F Y') }} change history</h4>
+                    @foreach ($summary['history'] as $ticketChange)
+                        <section class="inspector-detail-section">
+                            <h4>{{ $ticketChange->created_at->format('j M Y, H:i') }} · {{ $ticketChange->actor?->name ?? 'Former user' }} · {{ ucfirst($ticketChange->action) }}</h4>
+                            @forelse ($ticketChange->changes ?? [] as $field => $values)
+                                <strong>{{ ucfirst(str_replace('_', ' ', $field)) }}</strong>
+                                <div class="patch-details-text">{{ $values['before'] ?? '—' }} → {{ $values['after'] ?? '—' }}</div>
+                            @empty
+                                <p>No field values changed.</p>
+                            @endforelse
+                        </section>
+                    @endforeach
+                    <div class="patch-details-actions"><button type="button" data-close-patch-details>Close</button></div>
+                </dialog>
+            @endforeach
             <p class="report-note" style="margin-top:10px">Detailed change history starts from the date this feature was deployed; older edits cannot be reconstructed.</p>
     </section>
 

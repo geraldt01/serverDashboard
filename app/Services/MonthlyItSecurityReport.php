@@ -72,7 +72,7 @@ class MonthlyItSecurityReport
         $costs = app(AwsCostReport::class)->build();
         $inspector = app(AwsInspectorReport::class)->build();
         $awsBackups = app(AwsBackupReport::class)->build();
-        $ticketChangeHistory = SupportTicketChange::query()->with(['ticket', 'actor'])
+        $ticketChangeHistory = SupportTicketChange::query()->with(['ticket.creator', 'actor'])
             ->where('created_at', '<=', CarbonImmutable::now())->latest()->orderByDesc('id')->get();
         $ticketChangeSummaries = $ticketChangeHistory
             ->groupBy(fn ($change) => $change->created_at->format('Y-m').':'.$change->support_ticket_id)
@@ -93,6 +93,7 @@ class MonthlyItSecurityReport
                     'actors' => $changes->map(fn ($change) => $change->actor?->name ?? 'Former user')->unique()->implode(', '),
                     'actions' => $changes->pluck('action')->unique()->implode(', '),
                     'count' => $changes->count(),
+                    'history' => $changes,
                 ];
             })->values();
 
