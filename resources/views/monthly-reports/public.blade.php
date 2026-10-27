@@ -131,7 +131,7 @@
             <dt>Availability</dt><dd>Availability calculated from recorded checks during the reporting month, with per-asset results compared against the 99.9% target.</dd>
             <dt>AWS cost breakdown</dt><dd>Monthly spending by service across six completed months and the current month, a month-end estimate, and current-month-to-date costs for the services listed in the table.</dd>
             <dt>Backup policy</dt><dd>Configured AWS Backup plans and recent job outcomes, alongside reported WP Engine backup schedules and restore-testing expectations. Reported policies alone do not verify successful backups or restores.</dd>
-            <dt>Config App change log</dt><dd>One summary per ticket for the selected month, combining recorded edits, contributors and first-to-latest field values.</dd>
+            <dt>Digital App Support Tickets</dt><dd>One summary per ticket for the selected month, combining recorded edits, contributors and first-to-latest field values.</dd>
             <dt>Systems, access and operating guide</dt><dd>Dashboard users, roles and MFA enrolment; WordPress and EC2 inventories; and routine monitoring, maintenance and report-sharing tasks.</dd>
         </dl>
         <ul class="report-list">@foreach ($report['risks'] as $risk)<li>{{ $risk }}</li>@endforeach</ul>
@@ -454,7 +454,7 @@
     </section>
 
     <section class="panel report-section" id="config-app-change-log">
-            <h2>Config App change log</h2>
+            <h2>Digital App Support Tickets</h2>
             <p class="report-note" style="margin-top:12px">Recorded ticket changes with the actor and before-and-after details where available.</p>
             <div class="change-log-filters">
                 <label for="change-log-month">Month
@@ -477,7 +477,7 @@
                 @endforeach
             </tbody></table></div>
             <p data-change-log-empty hidden>No ticket changes match the selected month and search.</p>
-            <div class="report-pagination" data-pagination-controls aria-label="Config App change log pagination"><button type="button" data-page-previous aria-label="Previous change log page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next change log page">Next</button></div>
+            <div class="report-pagination" data-pagination-controls aria-label="Digital App Support Tickets pagination"><button type="button" data-page-previous aria-label="Previous change log page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next change log page">Next</button></div>
             <p class="report-note" style="margin-top:10px">Detailed change history starts from the date this feature was deployed; older edits cannot be reconstructed.</p>
     </section>
 

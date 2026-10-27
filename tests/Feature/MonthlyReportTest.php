@@ -137,7 +137,7 @@ class MonthlyReportTest extends TestCase
             ->assertSee('AWS cost breakdown')
             ->assertSee('Amazon Inspector is AWS’s automated vulnerability management service')
             ->assertSee('Backup policy')
-            ->assertSee('Config App change log')
+            ->assertSee('Digital App Support Tickets')
             ->assertSee('Systems, access and operating guide');
         $this->assertStringNotContainsString('<details', $response->getContent());
     }
