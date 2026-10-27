@@ -18,6 +18,9 @@
     .report-section h2 { margin:0 0 12px; font-size:16px; }
     .report-section h3 { margin:18px 0 8px; }
     .report-section p:last-child { margin-bottom:0; }
+    .report-about-heading { padding:14px 16px; border-left:5px solid var(--report-magenta); background:#f8e7f0; }
+    .report-about-heading h2 { margin:0; color:#86144e; font-size:22px; line-height:1.3; overflow-wrap:anywhere; }
+    .report-about-heading .muted { margin:4px 0 0; color:#62546b; font-size:13px; }
     .report-table { border:1px solid #eadde7; border-radius:6px; overflow:hidden; }
     .report-table table { min-width:580px; }
     .report-table th { color:#fff; background:#c81e78; font-size:11px; }
@@ -120,8 +123,10 @@
     </section>
 
     <section class="panel report-section">
-        <h2>About this page</h2>
-        <p class="muted">for your info</p>
+        <header class="report-about-heading">
+            <h2>About this page</h2>
+            <p class="muted">for your info</p>
+        </header>
         <dl class="report-guide">
             <dt>Amazon Inspector vulnerabilities</dt><dd>Active AWS package and code vulnerability findings, including severity, affected resources, available fixes and finding age.</dd>
             <dt>Server patch status</dt><dd>Latest reported pending server updates and security updates, plus observed reductions in pending patches during the last 30 days. History timestamps show when a report first detected the reduction, not the exact installation time.</dd>

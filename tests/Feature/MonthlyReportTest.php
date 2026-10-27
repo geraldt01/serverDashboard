@@ -131,6 +131,7 @@ class MonthlyReportTest extends TestCase
             ->assertHeader('Referrer-Policy', 'no-referrer')
             ->assertSee('IT &amp; Security Report', false)
             ->assertSee('<h2>About this page</h2>', false)
+            ->assertSee('<header class="report-about-heading">', false)
             ->assertSee('<p class="muted">for your info</p>', false)
             ->assertDontSee('<h2>What needs attention</h2>', false)
             ->assertDontSee('This report brings together security findings')
