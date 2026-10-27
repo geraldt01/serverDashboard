@@ -126,13 +126,18 @@
             <dt>Amazon Inspector vulnerabilities</dt><dd>Active AWS package and code vulnerability findings, including severity, affected resources, available fixes and finding age.</dd>
             <dt>Server patch status</dt><dd>Latest reported pending server updates and security updates, plus observed reductions in pending patches during the last 30 days. History timestamps show when a report first detected the reduction, not the exact installation time.</dd>
             <dt>WordPress updates</dt><dd>Current plugin and core update findings, plus installed-version increases first observed during the last 30 days.</dd>
+        </dl>
+        <details class="report-details" id="about-page-details">
+            <summary>More about this page</summary>
+            <dl class="report-guide">
             <dt>Availability</dt><dd>Availability calculated from recorded checks during the reporting month, with per-asset results compared against the 99.9% target.</dd>
             <dt>AWS cost breakdown</dt><dd>Monthly spending by service across six completed months and the current month, a month-end estimate, and current-month-to-date costs for the services listed in the table.</dd>
             <dt>Backup policy</dt><dd>Configured AWS Backup plans and recent job outcomes, alongside reported WP Engine backup schedules and restore-testing expectations. Reported policies alone do not verify successful backups or restores.</dd>
             <dt>Digital App Support Tickets</dt><dd>One summary per ticket for the selected month, combining recorded edits, contributors and first-to-latest field values.</dd>
             <dt>Systems, access and operating guide</dt><dd>Dashboard users, roles and MFA enrolment; WordPress and EC2 inventories; and routine monitoring, maintenance and report-sharing tasks.</dd>
-        </dl>
-        <ul class="report-list">@foreach ($report['risks'] as $risk)<li>{{ $risk }}</li>@endforeach</ul>
+            </dl>
+            <ul class="report-list">@foreach ($report['risks'] as $risk)<li>{{ $risk }}</li>@endforeach</ul>
+        </details>
     </section>
 
     <section class="panel report-section">
