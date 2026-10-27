@@ -127,8 +127,9 @@
             <dt>Server patch status</dt><dd>Latest reported pending server updates and security updates, plus observed reductions in pending patches during the last 30 days. History timestamps show when a report first detected the reduction, not the exact installation time.</dd>
             <dt>WordPress updates</dt><dd>Current plugin and core update findings, plus installed-version increases first observed during the last 30 days.</dd>
         </dl>
-        <details class="report-details" id="about-page-details">
-            <summary>More about this page</summary>
+        <button type="button" class="secondary" data-open-patch-details="about-page-details" aria-haspopup="dialog" aria-controls="about-page-details">More about this page</button>
+        <dialog class="patch-details-dialog" id="about-page-details" aria-labelledby="about-page-details-title">
+            <h3 id="about-page-details-title">About this page</h3>
             <dl class="report-guide">
             <dt>Availability</dt><dd>Availability calculated from recorded checks during the reporting month, with per-asset results compared against the 99.9% target.</dd>
             <dt>AWS cost breakdown</dt><dd>Monthly spending by service across six completed months and the current month, a month-end estimate, and current-month-to-date costs for the services listed in the table.</dd>
@@ -137,7 +138,8 @@
             <dt>Systems, access and operating guide</dt><dd>Dashboard users, roles and MFA enrolment; WordPress and EC2 inventories; and routine monitoring, maintenance and report-sharing tasks.</dd>
             </dl>
             <ul class="report-list">@foreach ($report['risks'] as $risk)<li>{{ $risk }}</li>@endforeach</ul>
-        </details>
+            <div class="patch-details-actions"><button type="button" data-close-patch-details>Close</button></div>
+        </dialog>
     </section>
 
     <section class="panel report-section">

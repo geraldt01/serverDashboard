@@ -146,12 +146,14 @@ class MonthlyReportTest extends TestCase
         $document = new \DOMDocument();
         @$document->loadHTML($response->getContent());
         $xpath = new \DOMXPath($document);
-        $details = $xpath->query('//details[@id="about-page-details"]');
+        $details = $xpath->query('//dialog[@id="about-page-details"]');
         $this->assertSame(1, $details->length);
         $this->assertFalse($details->item(0)->hasAttribute('open'));
-        $this->assertSame('More about this page', $xpath->query('//details/summary')->item(0)->textContent);
-        $this->assertSame(3, $xpath->query('//details[@id="about-page-details"]/preceding-sibling::dl/dt')->length);
-        $this->assertSame(5, $xpath->query('//details[@id="about-page-details"]/dl/dt')->length);
+        $this->assertSame('More about this page', $xpath->query('//button[@data-open-patch-details="about-page-details"]')->item(0)->textContent);
+        $this->assertSame(3, $xpath->query('//dialog[@id="about-page-details"]/preceding-sibling::dl/dt')->length);
+        $this->assertSame(5, $xpath->query('//dialog[@id="about-page-details"]/dl/dt')->length);
+        $this->assertSame(1, $xpath->query('//dialog[@id="about-page-details"]//button[@data-close-patch-details]')->length);
+        $this->assertSame(0, $xpath->query('//details[@id="about-page-details"]')->length);
     }
 
     public function test_inspector_report_maps_active_vulnerability_findings_and_counts_severity(): void
