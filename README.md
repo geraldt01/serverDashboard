@@ -112,6 +112,29 @@ Prefer the EC2 instance role in production. For local development, use freshly r
 
 The dashboard does not integrate a CVE vulnerability scanner. WordPress outdated plugin/core reports and AWS security-patch counts are update findings, not confirmed exploitable vulnerabilities; any resolved count is inferred from a later report or a reduced patch count, not verified installation evidence. Backup rows are the stated policy only (weekly EC2, daily WP Engine); verify provider jobs monthly and record a quarterly restore test in Support Ticketing.
 
+### AWS Backup Report Access
+
+The monthly report reads AWS Backup plans and recent jobs without changing backups. Grant the IAM role or user used by the dashboard PHP process this policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["backup:ListBackupPlans", "backup:ListBackupJobs"],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+These list actions require `Resource: "*"`. An organization policy, permissions boundary or explicit deny can still block them. Use the existing dashboard IAM identity; do not create or share new access keys just to troubleshoot this report.
+
+Set `AWS_BACKUP_REGIONS` to the comma-separated regions containing your AWS Backup plans (for example, `ap-southeast-2`). It defaults to `AWS_DEFAULT_REGION`. After changing environment settings, rebuild the deployed Laravel configuration cache with `php artisan config:cache` and reload the report.
+
+The report distinguishes permission, credential, service and connection failures. For other failures, inspect the server's Laravel logs. A successful response with no plans is different from denied access. EC2 snapshots or Data Lifecycle Manager policies created outside AWS Backup are not included; an empty AWS Backup inventory does not mean that no native backups exist.
+
 Ticket creation and every edit now record the actor and changed fields. Historical changes made before this migration cannot be reconstructed. Keep the Laravel scheduler running every minute in production for both five-minute uptime probes and monthly delivery. The manager's report URL is generated from `APP_URL`; configure it to the canonical public HTTPS dashboard address.
 
 ### Scheduled Tasks (Frontend Page Checks and Uptime)

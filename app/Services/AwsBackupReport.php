@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use Aws\Backup\BackupClient;
+use Aws\Exception\AwsException;
+use Aws\Exception\CredentialsException;
 use Carbon\CarbonImmutable;
 
 class AwsBackupReport
@@ -20,6 +22,7 @@ class AwsBackupReport
         $jobs = [];
         $queriedRegions = [];
         $failedRegions = [];
+        $failures = [];
 
         if (app()->environment('testing') && $this->client === null) {
             return $this->unavailable($regions, 'AWS Backup is not queried in the test environment.');
@@ -54,11 +57,12 @@ class AwsBackupReport
             } catch (\Throwable $exception) {
                 report($exception);
                 $failedRegions[] = $region;
+                $failures[] = $region.': '.$this->failureNote($exception);
             }
         }
 
         if ($queriedRegions === []) {
-            return $this->unavailable($regions, 'AWS Backup details could not be retrieved. Check AWS credentials and backup:ListBackupPlans and backup:ListBackupJobs permissions.');
+            return $this->unavailable($regions, 'AWS Backup details could not be retrieved. '.implode(' ', $failures));
         }
 
         usort($jobs, fn ($left, $right) => ($right['created_at']?->getTimestamp() ?? 0) <=> ($left['created_at']?->getTimestamp() ?? 0));
@@ -78,8 +82,29 @@ class AwsBackupReport
             'refreshed_at' => CarbonImmutable::now(),
             'data_note' => $failedRegions === []
                 ? 'Read-only AWS Backup plans and backup jobs from the last 30 days. Native backups outside AWS Backup are not included.'
-                : 'Partial AWS Backup results; data could not be retrieved in '.implode(', ', $failedRegions).'.',
+                : 'Partial AWS Backup results. '.implode(' ', $failures),
         ];
+    }
+
+    private function failureNote(\Throwable $exception): string
+    {
+        if ($exception instanceof CredentialsException) {
+            return 'AWS credentials are unavailable to the dashboard process. Configure its IAM role or AWS SDK credential provider.';
+        }
+
+        if ($exception instanceof AwsException) {
+            return match ($exception->getAwsErrorCode()) {
+                'AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation' => 'AWS denied Backup access. Allow backup:ListBackupPlans and backup:ListBackupJobs on resource * for the dashboard IAM identity; check permissions boundaries and organization policies.',
+                'ExpiredToken', 'ExpiredTokenException', 'InvalidClientTokenId', 'UnrecognizedClientException', 'InvalidSignatureException', 'SignatureDoesNotMatch' => 'AWS rejected the dashboard credentials. Check the IAM role, credential validity and any session token.',
+                'Throttling', 'ThrottlingException', 'LimitExceededException', 'TooManyRequestsException' => 'AWS Backup is rate limited. Try again shortly.',
+                'ServiceUnavailableException' => 'AWS Backup is temporarily unavailable. Try again shortly.',
+                default => $exception->isConnectionError()
+                    ? 'Cannot connect to AWS Backup. Check outbound HTTPS, DNS and TLS configuration for this region.'
+                    : 'AWS Backup could not complete the request. Check the server logs for the AWS error code.',
+            };
+        }
+
+        return 'The dashboard could not read AWS Backup data. Check the server logs for the underlying error.';
     }
 
     private function listAll(BackupClient $client, string $method, string $resultKey): array

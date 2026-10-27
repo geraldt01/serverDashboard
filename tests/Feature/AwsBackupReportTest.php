@@ -10,6 +10,35 @@ use Tests\TestCase;
 
 class AwsBackupReportTest extends TestCase
 {
+    public function test_access_denied_identifies_required_permissions_without_exposing_raw_errors(): void
+    {
+        config(['services.backup.regions' => ['ap-southeast-2']]);
+        $client = Mockery::mock(BackupClient::class);
+        $exception = new \Aws\Exception\AwsException('private AWS diagnostic', new \Aws\Command('ListBackupPlans'), [
+            'code' => 'AccessDeniedException',
+        ]);
+        $client->shouldReceive('listBackupPlans')->once()->andThrow($exception);
+        $report = (new AwsBackupReport($client))->build();
+
+        $this->assertFalse($report['available']);
+        $this->assertStringContainsString('ap-southeast-2', $report['data_note']);
+        $this->assertStringContainsString('AWS denied Backup access', $report['data_note']);
+        $this->assertStringContainsString('backup:ListBackupPlans and backup:ListBackupJobs', $report['data_note']);
+        $this->assertStringNotContainsString('private AWS diagnostic', $report['data_note']);
+    }
+
+    public function test_missing_credentials_are_not_reported_as_missing_permissions(): void
+    {
+        config(['services.backup.regions' => ['ap-southeast-2']]);
+        $client = Mockery::mock(BackupClient::class);
+        $client->shouldReceive('listBackupPlans')->once()->andThrow(new \Aws\Exception\CredentialsException('private provider error'));
+        $report = (new AwsBackupReport($client))->build();
+
+        $this->assertFalse($report['available']);
+        $this->assertStringContainsString('credentials are unavailable', $report['data_note']);
+        $this->assertStringNotContainsString('private provider error', $report['data_note']);
+    }
+
     public function test_it_reads_backup_plans_and_recent_jobs_without_mutating_backup_configuration(): void
     {
         config(['services.backup.regions' => ['ap-southeast-2']]);

@@ -119,7 +119,7 @@
         <div class="report-metric"><span>Pending server updates</span><strong>{{ $report['ec2']['patches_pending'] }}</strong><small>{{ $report['ec2']['security_pending'] }} security-related</small></div>
         <div class="report-metric"><span>WordPress sites</span><strong>{{ $report['sites']->count() }}</strong><small>Registered sites</small></div>
         <div class="report-metric"><span>Availability</span><strong>{{ $uptimeLabel }}</strong><small>Target 99.9%</small></div>
-        <div class="report-metric"><span>AWS cost</span><strong>{{ $report['costs']['available'] ? number_format($report['costs']['total'], 2) : 'Unavailable' }}</strong><small>{{ $report['costs']['available'] ? $report['costs']['unit'].' · 6 months + current' : 'Cost Explorer access required' }}</small></div>
+        <div class="report-metric"><span>AWS cost</span><strong>{{ $report['costs']['available'] && $report['costs']['current_month_total'] !== null ? number_format($report['costs']['current_month_total'], 2) : 'Unavailable' }}</strong><small>{{ $report['costs']['available'] ? $report['costs']['unit'].' · '.now()->format('F Y').' to date' : 'Cost Explorer access required' }}</small></div>
     </section>
 
     <section class="panel report-section">
@@ -447,13 +447,16 @@
             </tbody></table></div>
             <h3 style="margin-top:22px">Recent AWS Backup jobs</h3>
             <p class="report-note" style="margin-top:12px">Latest backup job outcomes returned by AWS Backup for the last 30 days.</p>
-            <div class="scroll report-table"><table><thead><tr><th>Created</th><th>Region</th><th>Resource</th><th>Status</th></tr></thead><tbody>
+            <div id="aws-backup-jobs">
+            <div class="scroll report-table" data-report-pagination data-page-size="5"><table><thead><tr><th>Created</th><th>Region</th><th>Resource</th><th>Status</th></tr></thead><tbody>
                 @forelse ($report['aws_backups']['jobs'] as $job)
                     <tr><td>{{ $job['created_at']?->format('j M Y, H:i T') ?? 'Unknown' }}</td><td>{{ $job['region'] }}</td><td>{{ $job['resource'] }}</td><td><span class="report-tag">{{ $job['state'] }}</span></td></tr>
                 @empty
                     <tr><td colspan="4">No AWS Backup jobs were returned for the last 30 days.</td></tr>
                 @endforelse
             </tbody></table></div>
+            <div class="report-pagination" data-pagination-controls aria-label="AWS Backup jobs pagination"><button type="button" data-page-previous aria-label="Previous AWS Backup jobs page">Previous</button><span data-page-status></span><button type="button" data-page-next aria-label="Next AWS Backup jobs page">Next</button></div>
+            </div>
             <p class="report-note" style="margin-top:10px">{{ $report['aws_backups']['data_note'] }}</p>
         @else
             <p>{{ $report['aws_backups']['data_note'] }}</p>
