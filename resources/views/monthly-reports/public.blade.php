@@ -15,7 +15,7 @@
     .report-metric strong { display:block; margin-top:5px; font-size:24px; line-height:1.2; }
     .report-metric small { display:block; margin-top:3px; color:#736c88; }
     .report-section { margin:0 0 16px; padding:20px 22px; }
-    .report-section h2 { margin:0 0 12px; font-size:16px; }
+    .report-section h2 { margin:0 0 16px; font-size:22px; line-height:1.4; text-decoration:underline; text-decoration-color:var(--report-magenta); text-decoration-thickness:2px; text-underline-offset:6px; overflow-wrap:anywhere; }
     .report-section h3 { margin:18px 0 8px; }
     .report-section p:last-child { margin-bottom:0; }
     .report-about-heading { padding:14px 16px; border-left:5px solid var(--report-magenta); background:#f8e7f0; }
