@@ -6,6 +6,7 @@ use App\Models\Ec2PatchStatus;
 use App\Models\MonthlyReportSetting;
 use App\Models\OtherServer;
 use App\Models\OtherServerPatchReport;
+use App\Models\SupportTicket;
 use App\Models\SupportTicketChange;
 use App\Models\User;
 use App\Models\UptimeCheck;
@@ -107,6 +108,8 @@ class MonthlyItSecurityReport
             'sites' => $sites,
             'webpage_checks' => $webpageChecks,
             'ticket_changes' => $ticketChanges,
+            'current_month_ticket_count' => SupportTicket::query()
+                ->whereBetween('created_at', [CarbonImmutable::now()->startOfMonth(), CarbonImmutable::now()])->count(),
             'current_ticket_changes' => $currentTicketChanges,
             'ticket_change_history' => $ticketChangeHistory,
             'ticket_change_summaries' => $ticketChangeSummaries,

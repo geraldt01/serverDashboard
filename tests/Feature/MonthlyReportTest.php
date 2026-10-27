@@ -489,6 +489,28 @@ class MonthlyReportTest extends TestCase
         }
     }
 
+    public function test_summary_metric_counts_tickets_created_this_month_not_edits(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-27 12:00:00'));
+        $settings = MonthlyReportSetting::current();
+        $attributes = ['title' => 'Monthly ticket', 'issue' => 'Configuration update', 'reported_by' => 'Operator', 'status' => 'open'];
+        $ticket = SupportTicket::forceCreate($attributes + ['created_at' => '2026-10-01 00:00:00']);
+        SupportTicket::forceCreate($attributes + ['created_at' => now()]);
+        SupportTicket::forceCreate($attributes + ['created_at' => '2026-09-30 23:59:59']);
+        SupportTicket::forceCreate($attributes + ['created_at' => '2026-11-01 00:00:00']);
+        foreach (range(1, 3) as $number) {
+            SupportTicketChange::create([
+                'support_ticket_id' => $ticket->id, 'actor_id' => null, 'action' => 'updated', 'changes' => [],
+            ]);
+        }
+
+        $this->assertSame(2, app(MonthlyItSecurityReport::class)->build()['current_month_ticket_count']);
+        $this->get(route('monthly-reports.public', ['token' => $settings->public_token]))
+            ->assertOk()
+            ->assertSee('<span>Support tickets this month</span><strong>2</strong><small>October 2026 to date</small>', false)
+            ->assertDontSee('<span>EC2 instances</span>', false);
+    }
+
     public function test_ticket_created_this_month_appears_in_current_month_change_log(): void
     {
         $today = CarbonImmutable::now();

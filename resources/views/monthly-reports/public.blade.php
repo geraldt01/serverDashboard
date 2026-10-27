@@ -115,7 +115,7 @@
     </div>
 
     <section class="report-metrics" aria-label="Monthly summary">
-        <div class="report-metric"><span>EC2 instances</span><strong>{{ $report['ec2']['count'] }}</strong><small>Across enabled regions</small></div>
+        <div class="report-metric"><span>Support tickets this month</span><strong>{{ $report['current_month_ticket_count'] }}</strong><small>{{ now()->format('F Y') }} to date</small></div>
         <div class="report-metric"><span>Pending server updates</span><strong>{{ $report['ec2']['patches_pending'] }}</strong><small>{{ $report['ec2']['security_pending'] }} security-related</small></div>
         <div class="report-metric"><span>WordPress sites</span><strong>{{ $report['sites']->count() }}</strong><small>Registered sites</small></div>
         <div class="report-metric"><span>Availability</span><strong>{{ $uptimeLabel }}</strong><small>Target 99.9%</small></div>
