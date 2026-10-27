@@ -120,7 +120,8 @@
     </section>
 
     <section class="panel report-section">
-        <h2>What needs attention</h2>
+        <h2>About this page</h2>
+        <p class="muted">for your info</p>
         <dl class="report-guide">
             <dt>Amazon Inspector vulnerabilities</dt><dd>Active AWS package and code vulnerability findings, including severity, affected resources, available fixes and finding age.</dd>
             <dt>Server patch status</dt><dd>Latest reported pending server updates and security updates, plus observed reductions in pending patches during the last 30 days. History timestamps show when a report first detected the reduction, not the exact installation time.</dd>
