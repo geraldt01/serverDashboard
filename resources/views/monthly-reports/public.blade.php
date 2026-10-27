@@ -121,10 +121,7 @@
 
     <section class="panel report-section">
         <h2>What needs attention</h2>
-        <p class="report-note" style="margin-top:12px">This report brings together security findings, system health, AWS spending, backup information and Config App changes to support monthly IT reviews and follow-up decisions. The reporting month is shown at the top; current status, recent history and month-to-date figures are labelled separately. Missing data does not confirm that a system is healthy or protected.</p>
         <dl class="report-guide">
-            <dt>Monthly summary</dt><dd>Headline figures for monitored EC2 instances, pending server updates, registered WordPress sites, reporting-month availability and AWS spending across the displayed cost period.</dd>
-            <dt>What needs attention</dt><dd>Risks and follow-up actions identified from the available monitoring data, listed below.</dd>
             <dt>Amazon Inspector vulnerabilities</dt><dd>Active AWS package and code vulnerability findings, including severity, affected resources, available fixes and finding age.</dd>
             <dt>Server patch status</dt><dd>Latest reported pending server updates and security updates, plus observed reductions in pending patches during the last 30 days. History timestamps show when a report first detected the reduction, not the exact installation time.</dd>
             <dt>WordPress updates</dt><dd>Current plugin and core update findings, plus installed-version increases first observed during the last 30 days.</dd>
