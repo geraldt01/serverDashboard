@@ -130,7 +130,7 @@ class MonthlyReportTest extends TestCase
             ->assertHeader('X-Robots-Tag', 'noindex, nofollow')
             ->assertHeader('Referrer-Policy', 'no-referrer')
             ->assertSee('IT &amp; Security Report', false)
-            ->assertSee('<h2>About this page</h2>', false)
+            ->assertSee('<h2>About this Monthly Report Page</h2>', false)
             ->assertSee('<header class="report-about-heading">', false)
             ->assertSee('<p class="muted">for your info</p>', false)
             ->assertDontSee('<h2>What needs attention</h2>', false)

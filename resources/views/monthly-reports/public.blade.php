@@ -124,7 +124,7 @@
 
     <section class="panel report-section">
         <header class="report-about-heading">
-            <h2>About this page</h2>
+            <h2>About this Monthly Report Page</h2>
             <p class="muted">for your info</p>
         </header>
         <dl class="report-guide">
