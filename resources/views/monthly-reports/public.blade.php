@@ -493,33 +493,29 @@
                 <dialog class="patch-details-dialog inspector-finding-dialog" id="ticket-details-{{ $loop->index }}" aria-labelledby="ticket-details-title-{{ $loop->index }}">
                     <h3 id="ticket-details-title-{{ $loop->index }}">Support Ticket #{{ $summary['latest']->support_ticket_id }}: {{ $ticket?->title ?? 'Deleted ticket' }}</h3>
                     @if ($ticket)
-                        <h4>Current ticket details</h4>
                         <dl class="inspector-detail-meta">
                             <dt>Status</dt><dd>{{ \App\Models\SupportTicket::STATUSES[$ticket->status] ?? ucfirst(str_replace('_', ' ', $ticket->status)) }}</dd>
                             <dt>Reported by</dt><dd>{{ $ticket->reported_by }}</dd>
-                            <dt>Logged by</dt><dd>{{ $ticket->creator?->name ?? 'Former user' }}</dd>
                             <dt>Created</dt><dd>{{ $ticket->created_at?->format('j M Y, H:i') ?? 'Not recorded' }}</dd>
                             <dt>Last updated</dt><dd>{{ $ticket->updated_at?->format('j M Y, H:i') ?? 'Not recorded' }}</dd>
-                            <dt>Started</dt><dd>{{ $ticket->started_at?->format('j M Y, H:i') ?? 'Not started' }}</dd>
-                            <dt>Finished</dt><dd>{{ $ticket->finished_at?->format('j M Y, H:i') ?? 'Not finished' }}</dd>
+                            @if ($ticket->started_at)
+                                <dt>Started</dt><dd>{{ $ticket->started_at->format('j M Y, H:i') }}</dd>
+                            @endif
+                            @if ($ticket->finished_at)
+                                <dt>Finished</dt><dd>{{ $ticket->finished_at->format('j M Y, H:i') }}</dd>
+                            @endif
                         </dl>
                         <h4>Issue</h4>
                         <div class="patch-details-text">{{ $ticket->issue }}</div>
                     @else
-                        <p>This ticket has been deleted. Recorded changes are shown below.</p>
-                    @endif
-                    <h4>{{ $summary['latest']->created_at->format('F Y') }} change history</h4>
-                    @foreach ($summary['history'] as $ticketChange)
-                        <section class="inspector-detail-section">
-                            <h4>{{ $ticketChange->created_at->format('j M Y, H:i') }} · {{ $ticketChange->actor?->name ?? 'Former user' }} · {{ ucfirst($ticketChange->action) }}</h4>
-                            @forelse ($ticketChange->changes ?? [] as $field => $values)
+                        <p>This ticket has been deleted. Its recorded summary is shown below.</p>
+                        @foreach ($summary['changes'] as $field => $values)
                                 <strong>{{ ucfirst(str_replace('_', ' ', $field)) }}</strong>
                                 <div class="patch-details-text">{{ $values['before'] ?? '—' }} → {{ $values['after'] ?? '—' }}</div>
-                            @empty
-                                <p>No field values changed.</p>
-                            @endforelse
-                        </section>
-                    @endforeach
+                        @endforeach
+                    @endif
+                    <h4>{{ $summary['latest']->created_at->format('F Y') }} activity</h4>
+                    <p>{{ $summary['count'] }} recorded {{ $summary['count'] === 1 ? 'change' : 'changes' }} by {{ $summary['actors'] }}.<br>Last change: {{ $summary['latest']->created_at->format('j M Y, H:i') }}.</p>
                     <div class="patch-details-actions"><button type="button" data-close-patch-details>Close</button></div>
                 </dialog>
             @endforeach

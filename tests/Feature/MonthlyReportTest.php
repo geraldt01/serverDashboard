@@ -550,7 +550,7 @@ class MonthlyReportTest extends TestCase
             ->assertSee('August 2026')
             ->assertSee('September 2026')
             ->assertSee('October change 1')
-            ->assertSee('October change 23')
+            ->assertDontSee('October change 23')
             ->assertSee('23 recorded changes')
             ->assertSee('Change on 2026-08-12')
             ->assertDontSee('Change on 2026-11-01')
@@ -568,7 +568,12 @@ class MonthlyReportTest extends TestCase
         $this->assertSame(3, $xpath->query('//dialog[starts-with(@id, "ticket-details-")]')->length);
         $this->assertStringNotContainsString('October change 23', $xpath->query('//*[@data-change-log-table]')->item(0)->textContent);
         $this->assertStringContainsString('Configuration history', $xpath->query('//dialog[@id="ticket-details-0"]')->item(0)->textContent);
-        $this->assertStringContainsString('October change 23', $xpath->query('//dialog[@id="ticket-details-0"]')->item(0)->textContent);
+        $popup = $xpath->query('//dialog[@id="ticket-details-0"]')->item(0);
+        $this->assertStringNotContainsString('October change 23', $popup->textContent);
+        $this->assertStringContainsString('23 recorded changes by Former user', $popup->textContent);
+        $this->assertStringContainsString('October 2026 activity', $popup->textContent);
+        $this->assertSame(1, substr_count($popup->textContent, 'Configuration history'));
+        $this->assertSame(0, $xpath->query('.//section', $popup)->length);
         $this->assertCount(25, app(MonthlyItSecurityReport::class)->build()['ticket_change_history']);
     }
 
