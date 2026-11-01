@@ -27,6 +27,56 @@ class MonthlyReportTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_uptime_summary_aggregates_checks_without_hydrating_monthly_history(): void
+    {
+        $site = WordpressSite::forceCreate([
+            'name' => 'Uptime site',
+            'slug' => 'uptime-site',
+            'url' => 'https://uptime.example.test',
+            'monitor_token' => hash('sha256', 'uptime-token'),
+            'is_active' => true,
+        ]);
+        $period = app(MonthlyItSecurityReport::class)->period();
+        $rows = [];
+        foreach (range(1, 1200) as $number) {
+            $rows[] = [
+                'asset_type' => 'wordpress',
+                'asset_key' => (string) $site->id,
+                'asset_name' => $site->name,
+                'is_up' => $number <= 900,
+                'checked_at' => $period['start']->addDay(),
+            ];
+        }
+        foreach (array_chunk($rows, 100) as $batch) {
+            \App\Models\UptimeCheck::insert($batch);
+        }
+        \App\Models\UptimeCheck::create([
+            'asset_type' => 'webpage', 'asset_key' => (string) $site->id,
+            'asset_name' => 'Separate asset', 'is_up' => true,
+            'checked_at' => $period['start'],
+        ]);
+        \App\Models\UptimeCheck::create([
+            'asset_type' => 'wordpress', 'asset_key' => (string) $site->id,
+            'asset_name' => $site->name, 'is_up' => false,
+            'checked_at' => $period['end'],
+        ]);
+        $hydratedChecks = 0;
+        \App\Models\UptimeCheck::retrieved(function () use (&$hydratedChecks) {
+            $hydratedChecks++;
+        });
+
+        $report = app(MonthlyItSecurityReport::class)->build();
+
+        $this->assertSame(0, $hydratedChecks);
+        $this->assertSame(1201, $report['uptime']['check_count']);
+        $this->assertSame(round(901 * 100 / 1201, 3), $report['uptime']['percent']);
+        $this->assertCount(2, $report['uptime']['assets']);
+        $asset = $report['uptime']['assets']->firstWhere('type', 'wordpress');
+        $this->assertSame(1200, $asset['checks']);
+        $this->assertSame(75.0, $asset['percent']);
+        $this->assertNotContains('At least one active WordPress site has no uptime probe in the reporting period.', $report['risks']);
+    }
+
     public function test_patch_history_only_shows_observed_fixes_at_the_resolution_report_time(): void
     {
         $server = \App\Models\OtherServer::forceCreate([

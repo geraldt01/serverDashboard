@@ -143,22 +143,25 @@ class MonthlyItSecurityReport
     {
         $checks = UptimeCheck::query()
             ->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])
-            ->get();
-        $total = $checks->count();
-        $assets = $checks->groupBy(fn ($check) => $check->asset_type.':'.$check->asset_key)->map(function ($rows) {
-            $up = $rows->where('is_up', true)->count();
+            ->select('asset_type', 'asset_key')
+            ->selectRaw('MIN(asset_name) AS asset_name, COUNT(*) AS check_count, SUM(CASE WHEN is_up = 1 THEN 1 ELSE 0 END) AS up_count')
+            ->groupBy('asset_type', 'asset_key')
+            ->toBase()->get();
+        $total = (int) $checks->sum('check_count');
+        $assets = $checks->map(function ($row) {
 
             return [
-                'type' => $rows->first()->asset_type,
-                'name' => $rows->first()->asset_name,
-                'checks' => $rows->count(),
-                'percent' => round($up * 100 / $rows->count(), 3),
+                'type' => $row->asset_type,
+                'key' => (string) $row->asset_key,
+                'name' => $row->asset_name,
+                'checks' => (int) $row->check_count,
+                'percent' => round($row->up_count * 100 / $row->check_count, 3),
             ];
         })->values();
 
         return [
-            'percent' => $total > 0 ? round($checks->where('is_up', true)->count() * 100 / $total, 3) : null,
-            'checks' => $checks,
+            'percent' => $total > 0 ? round($checks->sum('up_count') * 100 / $total, 3) : null,
+            'check_count' => $total,
             'assets' => $assets,
             'target' => 99.9,
         ];
@@ -335,7 +338,7 @@ class MonthlyItSecurityReport
             $risks[] = 'No EC2 uptime observations were recorded; check IAM permissions for DescribeRegions and DescribeInstanceStatus.';
         }
         if ($sites->where('is_active', true)->isNotEmpty()) {
-            $probedSiteIds = $uptime['checks']->where('asset_type', 'wordpress')->pluck('asset_key')->unique()->all();
+            $probedSiteIds = $uptime['assets']->where('type', 'wordpress')->pluck('key')->all();
             if ($sites->where('is_active', true)->contains(fn ($site) => ! in_array((string) $site->id, $probedSiteIds, true))) {
                 $risks[] = 'At least one active WordPress site has no uptime probe in the reporting period.';
             }

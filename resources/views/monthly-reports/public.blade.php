@@ -116,7 +116,7 @@
 
     <section class="report-metrics" aria-label="Monthly summary">
         <div class="report-metric"><span>Support tickets this month</span><strong>{{ $report['current_month_ticket_count'] }}</strong><small>{{ now()->format('F Y') }} to date</small></div>
-        <div class="report-metric"><span>Pending server updates</span><strong>{{ $report['ec2']['patches_pending'] }}</strong><small>{{ $report['ec2']['security_pending'] }} security-related</small></div>
+        <div class="report-metric"><span>PENDING AWS SERVER UPDATES</span><strong>{{ $report['ec2']['patches_pending'] }}</strong><small>{{ $report['ec2']['security_pending'] }} security-related</small></div>
         <div class="report-metric"><span>WordPress sites</span><strong>{{ $report['sites']->count() }}</strong><small>Registered sites</small></div>
         <div class="report-metric"><span>Availability</span><strong>{{ $uptimeLabel }}</strong><small>Target 99.9%</small></div>
         <div class="report-metric"><span>AWS cost</span><strong>{{ $report['costs']['available'] && $report['costs']['current_month_total'] !== null ? number_format($report['costs']['current_month_total'], 2) : 'Unavailable' }}</strong><small>{{ $report['costs']['available'] ? $report['costs']['unit'].' · '.now()->format('F Y').' to date' : 'Cost Explorer access required' }}</small></div>
@@ -368,7 +368,7 @@
     <section class="panel report-section">
         <h2>Availability</h2>
         <p class="report-note" style="margin-top:12px">Sampled uptime results for monitored assets during the reporting period.</p>
-        <p>{{ $report['uptime']['percent'] === null ? 'No uptime observations are available for this month.' : number_format($report['uptime']['percent'], 3).'% observed availability across '.number_format($report['uptime']['checks']->count()).' checks.' }} Target: 99.9%.</p>
+        <p>{{ $report['uptime']['percent'] === null ? 'No uptime observations are available for this month.' : number_format($report['uptime']['percent'], 3).'% observed availability across '.number_format($report['uptime']['check_count']).' checks.' }} Target: 99.9%.</p>
         <div class="scroll report-table" style="margin-top:12px"><table><thead><tr><th>Asset</th><th>Type</th><th>Availability</th><th>Checks</th></tr></thead><tbody>
             @forelse ($report['uptime']['assets'] as $asset)<tr><td>{{ $asset['name'] }}</td><td><span class="report-tag">{{ strtoupper($asset['type']) }}</span></td><td>{{ number_format($asset['percent'], 3) }}%</td><td>{{ number_format($asset['checks']) }}</td></tr>@empty<tr><td colspan="4">Per-asset results will appear after scheduled checks have run.</td></tr>@endforelse
         </tbody></table></div>
