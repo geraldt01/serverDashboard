@@ -15,12 +15,14 @@ Laravel 10 dashboard for monitoring WordPress plugin updates, website traffic, a
 
 ## Run Locally
 
-This workspace is configured for SQLite and XAMPP PHP.
+Local development uses MySQL and XAMPP PHP. Start MySQL in the XAMPP Control Panel and create a database named `server_dashboard` (using `utf8mb4_unicode_ci`) in phpMyAdmin. Copy `.env.example` to `.env` and set `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD` for your MySQL installation before migrating.
 
 ```powershell
-& "C:\xampp\php\php.exe" artisan migrate:fresh --seed
+& "C:\xampp\php\php.exe" artisan migrate
 & "C:\xampp\php\php.exe" artisan serve --host=127.0.0.1 --port=8000
 ```
+
+`migrate` creates or updates the schema without deleting existing tables. Do not use `migrate:fresh` on a database with data; it drops all tables. This setup changes the application connection for a new/local database, but does not transfer rows from an existing SQLite database. Back up the SQLite file and plan a separate data import before switching an existing installation. Do not run the development seeder on production; it creates example accounts with known passwords.
 
 Open `http://127.0.0.1:8000/login`.
 
