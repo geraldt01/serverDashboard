@@ -27,7 +27,7 @@ class WordpressSiteController extends Controller
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:120'],
-            'url' => ['required', 'url', 'max:2048', 'unique:wordpress_sites,url'],
+            'url' => ['required', 'url', 'max:700', 'unique:wordpress_sites,url'],
         ]);
 
         $baseSlug = Str::slug($validated['name']) ?: 'wordpress-site';
