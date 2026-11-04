@@ -3,13 +3,12 @@
 namespace App\Services;
 
 use App\Models\Ec2PatchStatus;
-use App\Models\MonthlyReportSetting;
 use App\Models\OtherServer;
 use App\Models\OtherServerPatchReport;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketChange;
-use App\Models\User;
 use App\Models\UptimeCheck;
+use App\Models\User;
 use App\Models\WebpageCheck;
 use App\Models\WordpressCoreUpdate;
 use App\Models\WordpressPluginUpdate;
@@ -34,10 +33,14 @@ class MonthlyItSecurityReport
             ->orderBy('instance_name')->get();
         $servers = OtherServer::query()->where('is_active', true)->orderBy('name')->get();
         $sites = WordpressSite::query()->orderBy('name')->get();
-        $pluginRows = WordpressPluginUpdate::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->get();
-        $coreRows = WordpressCoreUpdate::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->get();
+        $pluginQuery = WordpressPluginUpdate::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()]);
+        $coreQuery = WordpressCoreUpdate::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()]);
+        $pluginCount = $pluginQuery->count();
+        $coreCount = $coreQuery->count();
+        $resolvedFindings = $this->countResolvedFindings((clone $pluginQuery)->select('id', 'wordpress_site_id', 'plugin_name', 'status')->orderBy('checked_at')->orderBy('id')->toBase()->lazy(250), fn ($row) => $row->wordpress_site_id.':'.$row->plugin_name)
+            + $this->countResolvedFindings((clone $coreQuery)->select('id', 'wordpress_site_id', 'status')->orderBy('checked_at')->orderBy('id')->toBase()->lazy(250), fn ($row) => (string) $row->wordpress_site_id);
         $wordpressUpdateHistory = $this->wordpressUpdateHistory();
-        $ec2MonthRows = Ec2PatchStatus::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->orderBy('checked_at')->get();
+        $patchReduction = $this->estimatePatchReduction(Ec2PatchStatus::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->select('id', 'aws_region', 'instance_id', 'missing_count')->orderBy('checked_at')->orderBy('id')->toBase()->lazy(250));
         $patchHistory = $this->patchHistory();
         $webpageChecks = WebpageCheck::query()->where('is_active', true)->orderBy('name')->get();
         $users = User::query()->orderBy('name')->get(['name', 'email', 'role', 'two_factor_confirmed_at']);
@@ -116,9 +119,8 @@ class MonthlyItSecurityReport
             'vulnerabilities' => [
                 'plugin_findings' => $outdatedPlugins,
                 'core_findings' => $outdatedCore,
-                'resolved_update_findings' => $this->countResolvedFindings($pluginRows, fn ($row) => $row->wordpress_site_id.':'.$row->plugin_name)
-                    + $this->countResolvedFindings($coreRows, fn ($row) => (string) $row->wordpress_site_id),
-                'patches_fixed_estimate' => $this->estimatePatchReduction($ec2MonthRows),
+                'resolved_update_findings' => $resolvedFindings,
+                'patches_fixed_estimate' => $patchReduction,
             ],
             'uptime' => $uptime,
             'users' => $users,
@@ -132,8 +134,8 @@ class MonthlyItSecurityReport
             'risks' => $this->risks($latestEc2, $serverInventory, $sites, $webpageChecks, $users, $uptime, $costs, $inspector),
             'security_activity' => [
                 'security_patch_records' => Ec2PatchStatus::query()->whereBetween('checked_at', [$period['start'], $period['end']->subSecond()])->count(),
-                'plugin_updates_checked' => $pluginRows->count(),
-                'core_updates_checked' => $coreRows->count(),
+                'plugin_updates_checked' => $pluginCount,
+                'core_updates_checked' => $coreCount,
                 'ticket_changes' => $ticketChanges->count(),
             ],
         ];
@@ -170,62 +172,67 @@ class MonthlyItSecurityReport
     private function patchHistory(): array
     {
         $since = CarbonImmutable::now()->subDays(30);
-        $ec2Rows = Ec2PatchStatus::query()->where('checked_at', '>=', $since)->orderBy('checked_at')->orderBy('id')->get();
-        $agentRows = OtherServerPatchReport::query()->with('server')->where('reported_at', '>=', $since)->orderBy('reported_at')->orderBy('id')->get();
+        $ec2Rows = Ec2PatchStatus::query()->where('checked_at', '>=', $since)->orderBy('checked_at')->orderBy('id')->lazy(250);
+        $agentRows = OtherServerPatchReport::query()->with('server:id,name')->where('reported_at', '>=', $since)->orderBy('reported_at')->orderBy('id')->lazy(250);
         $history = [];
+        $previousRows = [];
 
-        foreach ($ec2Rows->groupBy(fn ($row) => json_encode([$row->aws_region, $row->instance_id])) as $rows) {
-            $first = $rows->first();
-            $previous = Ec2PatchStatus::query()
-                ->where('aws_region', $first->aws_region)->where('instance_id', $first->instance_id)
-                ->where('checked_at', '<', $since)->orderByDesc('checked_at')->orderByDesc('id')->first();
-
-            foreach ($rows as $row) {
-                $cleared = $previous ? max(0, $previous->missing_count - $row->missing_count) : 0;
-                $securityCleared = $previous ? max(0, $previous->security_count - $row->security_count) : 0;
-                if ($cleared > 0 || $securityCleared > 0) {
-                    $history[] = [
-                        'at' => $row->checked_at,
-                        'server' => $row->instance_name,
-                        'region' => $row->aws_region,
-                        'source' => 'AWS SSM',
-                        'summary' => "Fix observed: {$cleared} fewer pending patches; {$securityCleared} fewer pending security patches. {$row->missing_count} patches remain pending.",
-                        'details' => 'Individual installed package details were not reported by SSM.',
-                        'type' => 'resolution',
-                    ];
-                }
-                $previous = $row;
+        foreach ($ec2Rows as $row) {
+            $key = json_encode([$row->aws_region, $row->instance_id]);
+            if (! array_key_exists($key, $previousRows)) {
+                $previousRows[$key] = Ec2PatchStatus::query()
+                    ->where('aws_region', $row->aws_region)->where('instance_id', $row->instance_id)
+                    ->where('checked_at', '<', $since)->orderByDesc('checked_at')->orderByDesc('id')->first();
             }
+            $previous = $previousRows[$key];
+            $cleared = $previous ? max(0, $previous->missing_count - $row->missing_count) : 0;
+            $securityCleared = $previous ? max(0, $previous->security_count - $row->security_count) : 0;
+            if ($cleared > 0 || $securityCleared > 0) {
+                $history[] = [
+                    'at' => $row->checked_at,
+                    'server' => $row->instance_name,
+                    'region' => $row->aws_region,
+                    'source' => 'AWS SSM',
+                    'summary' => "Fix observed: {$cleared} fewer pending patches; {$securityCleared} fewer pending security patches. {$row->missing_count} patches remain pending.",
+                    'details' => 'Individual installed package details were not reported by SSM.',
+                    'type' => 'resolution',
+                ];
+            }
+            $previousRows[$key] = $row;
+            $history = $this->latestHistory($history);
         }
 
-        foreach ($agentRows->groupBy('other_server_id') as $rows) {
-            $previous = OtherServerPatchReport::query()
-                ->where('other_server_id', $rows->first()->other_server_id)
-                ->where('reported_at', '<', $since)->orderByDesc('reported_at')->orderByDesc('id')->first();
-
-            foreach ($rows as $row) {
-                $cleared = $previous ? max(0, $previous->total_updates - $row->total_updates) : 0;
-                $securityCleared = $previous ? max(0, $previous->security_updates - $row->security_updates) : 0;
-                if ($cleared > 0 || $securityCleared > 0) {
-                    $details = [];
-                    if ($row->total_updates === 0 && $previous->update_details) {
-                        $details[] = 'Previously pending updates, now cleared:'."\n".$previous->update_details;
-                    }
-                    if ($row->security_updates === 0 && $securityCleared > 0 && $previous->security_update_details) {
-                        $details[] = 'Previously pending security updates, now cleared:'."\n".$previous->security_update_details;
-                    }
-                    $history[] = [
-                        'at' => $row->reported_at,
-                        'server' => $row->server?->name ?? 'Removed server',
-                        'region' => null,
-                        'source' => 'Server agent',
-                        'summary' => "Fix observed: {$cleared} fewer pending updates; {$securityCleared} fewer pending security updates. {$row->total_updates} updates remain pending; reboot required: ".($row->reboot_required ? 'yes' : 'no').'.',
-                        'details' => implode("\n", $details) ?: 'Individual resolved packages cannot be identified from the available reports.',
-                        'type' => 'resolution',
-                    ];
-                }
-                $previous = $row;
+        $previousRows = [];
+        foreach ($agentRows as $row) {
+            $key = $row->other_server_id;
+            if (! array_key_exists($key, $previousRows)) {
+                $previousRows[$key] = OtherServerPatchReport::query()
+                    ->where('other_server_id', $key)
+                    ->where('reported_at', '<', $since)->orderByDesc('reported_at')->orderByDesc('id')->first();
             }
+            $previous = $previousRows[$key];
+            $cleared = $previous ? max(0, $previous->total_updates - $row->total_updates) : 0;
+            $securityCleared = $previous ? max(0, $previous->security_updates - $row->security_updates) : 0;
+            if ($cleared > 0 || $securityCleared > 0) {
+                $details = [];
+                if ($row->total_updates === 0 && $previous->update_details) {
+                    $details[] = 'Previously pending updates, now cleared:'."\n".$previous->update_details;
+                }
+                if ($row->security_updates === 0 && $securityCleared > 0 && $previous->security_update_details) {
+                    $details[] = 'Previously pending security updates, now cleared:'."\n".$previous->security_update_details;
+                }
+                $history[] = [
+                    'at' => $row->reported_at,
+                    'server' => $row->server?->name ?? 'Removed server',
+                    'region' => null,
+                    'source' => 'Server agent',
+                    'summary' => "Fix observed: {$cleared} fewer pending updates; {$securityCleared} fewer pending security updates. {$row->total_updates} updates remain pending; reboot required: ".($row->reboot_required ? 'yes' : 'no').'.',
+                    'details' => implode("\n", $details) ?: 'Individual resolved packages cannot be identified from the available reports.',
+                    'type' => 'resolution',
+                ];
+            }
+            $previousRows[$key] = $row;
+            $history = $this->latestHistory($history);
         }
 
         usort($history, fn ($left, $right) => $right['at']->getTimestamp() <=> $left['at']->getTimestamp());
@@ -240,39 +247,37 @@ class MonthlyItSecurityReport
 
         foreach (['Plugin' => WordpressPluginUpdate::class, 'Core' => WordpressCoreUpdate::class] as $type => $model) {
             $recentRows = $model::query()->with('wordpressSite:id,name')
-                ->where('checked_at', '>=', $since)->orderBy('checked_at')->orderBy('id')->get();
-            $groups = $recentRows->groupBy(fn ($row) => json_encode([
-                $row->wordpress_site_id ?? $row->site_name,
-                $type === 'Plugin' ? $row->plugin_name : 'WordPress core',
-            ]));
+                ->where('checked_at', '>=', $since)->orderBy('checked_at')->orderBy('id')->lazy(250);
+            $previousRows = [];
 
-            foreach ($groups as $rows) {
-                $first = $rows->first();
-                $baseline = $model::query()->where('wordpress_site_id', $first->wordpress_site_id);
-                if ($first->wordpress_site_id === null) {
-                    $baseline->where('site_name', $first->site_name);
-                }
-                if ($type === 'Plugin') {
-                    $baseline->where('plugin_name', $first->plugin_name);
-                }
-                $previous = $baseline->where('checked_at', '<', $since)
-                    ->orderByDesc('checked_at')->orderByDesc('id')->first();
-
-                foreach ($rows as $row) {
-                    if ($previous && $previous->current_version && $row->current_version
-                        && version_compare($row->current_version, $previous->current_version, '>')) {
-                        $history[] = [
-                            'at' => $row->checked_at,
-                            'site' => $row->wordpressSite?->name ?? $row->site_name,
-                            'component' => $type === 'Plugin' ? $row->plugin_name : 'WordPress core',
-                            'type' => $type,
-                            'current' => $previous->current_version,
-                            'latest' => $row->current_version,
-                            'details' => 'Installed version increased from '.$previous->current_version.' to '.$row->current_version.'.',
-                        ];
+            foreach ($recentRows as $row) {
+                $key = json_encode([$row->wordpress_site_id ?? $row->site_name, $type === 'Plugin' ? $row->plugin_name : 'WordPress core']);
+                if (! array_key_exists($key, $previousRows)) {
+                    $baseline = $model::query()->where('wordpress_site_id', $row->wordpress_site_id);
+                    if ($row->wordpress_site_id === null) {
+                        $baseline->where('site_name', $row->site_name);
                     }
-                    $previous = $row;
+                    if ($type === 'Plugin') {
+                        $baseline->where('plugin_name', $row->plugin_name);
+                    }
+                    $previousRows[$key] = $baseline->where('checked_at', '<', $since)
+                        ->orderByDesc('checked_at')->orderByDesc('id')->first();
                 }
+                $previous = $previousRows[$key];
+                if ($previous && $previous->current_version && $row->current_version
+                    && version_compare($row->current_version, $previous->current_version, '>')) {
+                    $history[] = [
+                        'at' => $row->checked_at,
+                        'site' => $row->wordpressSite?->name ?? $row->site_name,
+                        'component' => $type === 'Plugin' ? $row->plugin_name : 'WordPress core',
+                        'type' => $type,
+                        'current' => $previous->current_version,
+                        'latest' => $row->current_version,
+                        'details' => 'Installed version increased from '.$previous->current_version.' to '.$row->current_version.'.',
+                    ];
+                }
+                $previousRows[$key] = $row;
+                $history = $this->latestHistory($history);
             }
         }
 
@@ -300,20 +305,38 @@ class MonthlyItSecurityReport
 
     private function countResolvedFindings($rows, callable $key): int
     {
-        return $rows->groupBy($key)->filter(function ($history) {
-            $history = $history->sortBy('checked_at');
+        $states = [];
+        foreach ($rows as $row) {
+            $asset = $key($row);
+            $states[$asset] = [
+                'outdated' => ($states[$asset]['outdated'] ?? false) || $row->status === 'outdated',
+                'status' => $row->status,
+            ];
+        }
 
-            return $history->contains('status', 'outdated') && $history->last()->status !== 'outdated';
-        })->count();
+        return count(array_filter($states, fn ($state) => $state['outdated'] && $state['status'] !== 'outdated'));
     }
 
     private function estimatePatchReduction($rows): int
     {
-        return (int) $rows->groupBy(fn ($row) => ($row->aws_region ?: config('services.aws.region')).':'.$row->instance_id)->sum(function ($history) {
-            $history = $history->sortBy('checked_at');
+        $states = [];
+        foreach ($rows as $row) {
+            $key = ($row->aws_region ?: config('services.aws.region')).':'.$row->instance_id;
+            $states[$key] = ['first' => $states[$key]['first'] ?? (int) $row->missing_count, 'last' => (int) $row->missing_count];
+        }
 
-            return max(0, (int) $history->first()->missing_count - (int) $history->last()->missing_count);
-        });
+        return (int) array_sum(array_map(fn ($state) => max(0, $state['first'] - $state['last']), $states));
+    }
+
+    private function latestHistory(array $history): array
+    {
+        if (count($history) <= 100) {
+            return $history;
+        }
+
+        usort($history, fn ($left, $right) => $right['at']->getTimestamp() <=> $left['at']->getTimestamp());
+
+        return array_slice($history, 0, 100);
     }
 
     private function risks($ec2, $servers, $sites, $webpageChecks, $users, array $uptime, array $costs, array $inspector): array

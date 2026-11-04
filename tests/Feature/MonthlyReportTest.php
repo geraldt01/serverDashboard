@@ -27,6 +27,69 @@ class MonthlyReportTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_large_update_histories_use_bounded_queries_and_preserve_monthly_totals(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-11-04 12:00:00'));
+        $site = WordpressSite::forceCreate([
+            'name' => 'Large history site', 'slug' => 'large-history-site',
+            'url' => 'https://history.example.test',
+            'monitor_token' => hash('sha256', 'history-token'), 'is_active' => true,
+        ]);
+        try {
+            foreach (range(0, 11) as $batch) {
+                $plugins = [];
+                $cores = [];
+                $patches = [];
+                foreach (range(1, 100) as $offset) {
+                    $number = $batch * 100 + $offset;
+                    $asset = $number % 2;
+                    $version = '1.'.intdiv($number - 1, 2).'.0';
+                    $at = CarbonImmutable::parse('2026-10-10')->addMinutes($number);
+                    $common = [
+                        'wordpress_site_id' => $site->id, 'site_name' => $site->name,
+                        'current_version' => $version, 'latest_version' => $version,
+                        'status' => $number <= 2 ? 'outdated' : 'up_to_date', 'checked_at' => $at,
+                    ];
+                    $plugins[] = $common + ['plugin_name' => 'Plugin '.$asset];
+                    $cores[] = array_replace($common, ['wordpress_site_id' => null, 'site_name' => 'Legacy site '.$asset]);
+                    $patches[] = [
+                        'instance_id' => 'i-history-'.$asset, 'aws_region' => 'ap-southeast-2',
+                        'instance_name' => 'History server '.$asset, 'checked_at' => $at,
+                        'missing_count' => 600 - intdiv($number - 1, 2), 'security_count' => 0,
+                        'installed_count' => 0, 'failed_count' => 0, 'reboot_required' => false,
+                    ];
+                }
+                WordpressPluginUpdate::insert($plugins);
+                WordpressCoreUpdate::insert($cores);
+                Ec2PatchStatus::insert($patches);
+            }
+            $historyQueries = [];
+            \Illuminate\Support\Facades\DB::listen(function ($query) use (&$historyQueries) {
+                if (preg_match('/^select .*from ["`]?(wordpress_plugin_updates|wordpress_core_updates|ec2_patch_statuses)["]? /i', $query->sql)
+                    && str_contains($query->sql, 'checked_at') && ! str_contains($query->sql, 'count(*)')) {
+                    $historyQueries[] = $query->sql;
+                }
+            });
+
+            $report = app(MonthlyItSecurityReport::class)->build();
+
+            $this->assertSame(1200, $report['security_activity']['plugin_updates_checked']);
+            $this->assertSame(1200, $report['security_activity']['core_updates_checked']);
+            $this->assertSame(3, $report['vulnerabilities']['resolved_update_findings']);
+            $this->assertSame(1198, $report['vulnerabilities']['patches_fixed_estimate']);
+            $this->assertCount(100, $report['wordpress_update_history']);
+            $this->assertCount(100, $report['patch_history']);
+            $this->assertTrue($report['patch_history'][0]['at']->equalTo(CarbonImmutable::parse('2026-10-10')->addMinutes(1200)));
+            $this->assertSame('1.599.0', $report['wordpress_update_history'][0]['latest']);
+            $this->assertNotEmpty($historyQueries);
+            foreach ($historyQueries as $sql) {
+                $this->assertMatchesRegularExpression('/limit (1|250)(?: offset \d+)?$/i', $sql);
+            }
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
     public function test_uptime_summary_aggregates_checks_without_hydrating_monthly_history(): void
     {
         $site = WordpressSite::forceCreate([
