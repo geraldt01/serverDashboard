@@ -205,7 +205,7 @@
             @if ($report['inspector']['findings'])
                 <div class="scroll report-table" data-report-pagination data-page-size="10" data-filter-buttons="[data-inspector-severity]" data-machine-filter-table><table><thead><tr><th>Severity</th><th>Finding / CVE</th><th>Resource</th><th>Package / code location</th><th>Fix available</th><th>Age</th><th>First observed at</th></tr></thead><tbody>
                     @foreach ($report['inspector']['findings'] as $finding)
-                        <tr class="inspector-finding-row" data-severity="{{ $finding['severity'] }}" data-machine-keys="{{ implode('~', $finding['machine_keys']) }}" data-inspector-finding-index="{{ $loop->index }}" tabindex="0" role="button" aria-haspopup="dialog" aria-label="View details for {{ $finding['title'] }}">
+                        <tr class="inspector-finding-row" data-severity="{{ $finding['severity'] }}" data-machine-keys="{{ implode('~', $finding['machine_keys']) }}" data-inspector-finding-index="{{ $loop->index }}" data-inspector-finding-arn="{{ $finding['finding_arn'] ?? '' }}" tabindex="0" role="button" aria-haspopup="dialog" aria-label="View details for {{ $finding['title'] }}">
                             <td><span class="report-tag">{{ $finding['severity'] }}</span></td>
                             <td>{{ $finding['title'] }}<br><small>{{ $finding['vulnerability_id'] }}</small></td>
                             <td>{{ $finding['resource'] }}<br><small>{{ $finding['resource_type'] }}</small></td>
@@ -221,6 +221,8 @@
                 <dialog id="inspector-finding-dialog" class="patch-details-dialog inspector-finding-dialog inspector-detail-dialog" aria-labelledby="inspector-finding-title">
                     <h3 id="inspector-finding-title"></h3>
                     <p class="muted" data-inspector-finding-subtitle></p>
+                    <p role="status" data-inspector-loading-status></p>
+                    <button type="button" data-retry-inspector-finding hidden>Retry</button>
                     <div class="inspector-detail-section">
                         <h4>Finding overview</h4>
                         <dl class="inspector-detail-meta">
@@ -614,7 +616,10 @@
     }
     const inspectorFindingDialog = document.getElementById('inspector-finding-dialog');
     if (inspectorFindingDialog) {
-        const inspectorFindings = @json($report['inspector']['findings']);
+        let inspectorRequest = null;
+        let selectedInspectorRow = null;
+        const loadingStatus = inspectorFindingDialog.querySelector('[data-inspector-loading-status]');
+        const retryButton = inspectorFindingDialog.querySelector('[data-retry-inspector-finding]');
         const setDetail = (key, value) => {
             const target = inspectorFindingDialog.querySelector(`[data-inspector-detail="${key}"]`);
             if (target) target.textContent = value || 'Not provided';
@@ -626,9 +631,7 @@
                 row.appendChild(cell);
             });
         };
-        const showInspectorFinding = (index) => {
-            const finding = inspectorFindings[index];
-            if (!finding) return;
+        const renderInspectorFinding = (finding) => {
             const resource = finding.resources?.[0] || {};
             const title = inspectorFindingDialog.querySelector('#inspector-finding-title');
             const subtitle = inspectorFindingDialog.querySelector('[data-inspector-finding-subtitle]');
@@ -701,19 +704,55 @@
             inspectorFindingDialog.querySelector('[data-inspector-packages-section]').hidden = !(finding.package_details || []).length;
             inspectorFindingDialog.querySelector('[data-inspector-description-section]').hidden = !finding.description;
             inspectorFindingDialog.querySelector('[data-inspector-remediation-section]').hidden = !finding.remediation && !remediationUrl;
-            inspectorFindingDialog.showModal();
+        };
+
+        const showInspectorFinding = async (row) => {
+            inspectorRequest?.abort();
+            const request = new AbortController();
+            inspectorRequest = request;
+            selectedInspectorRow = row;
+            renderInspectorFinding({
+                title: row.cells[1].firstChild.textContent,
+                finding_arn: row.dataset.inspectorFindingArn,
+            });
+            loadingStatus.textContent = 'Loading finding details...';
+            retryButton.hidden = true;
+            inspectorFindingDialog.setAttribute('aria-busy', 'true');
+            if (!inspectorFindingDialog.open) inspectorFindingDialog.showModal();
+            try {
+                const url = new URL(window.location.href);
+                url.pathname = url.pathname.replace(/\/$/, '') + '/inspector-finding';
+                url.search = '';
+                url.searchParams.set('arn', row.dataset.inspectorFindingArn);
+                const response = await fetch(url, {
+                    headers: { Accept: 'application/json' }, cache: 'no-store', signal: request.signal,
+                });
+                if (!response.ok) throw new Error(response.status === 404 ? 'This finding is no longer available.' : 'Finding details could not be loaded. Please retry.');
+                const finding = await response.json();
+                if (request.signal.aborted) return;
+                renderInspectorFinding(finding);
+                loadingStatus.textContent = '';
+            } catch (error) {
+                if (request.signal.aborted) return;
+                loadingStatus.textContent = error.message || 'Finding details could not be loaded.';
+                retryButton.hidden = false;
+            } finally {
+                if (inspectorRequest === request) inspectorFindingDialog.removeAttribute('aria-busy');
+            }
         };
 
         document.querySelectorAll('[data-inspector-finding-index]').forEach((row) => {
-            row.addEventListener('click', () => showInspectorFinding(Number(row.dataset.inspectorFindingIndex)));
+            row.addEventListener('click', () => showInspectorFinding(row));
             row.addEventListener('keydown', (event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
-                    showInspectorFinding(Number(row.dataset.inspectorFindingIndex));
+                    showInspectorFinding(row);
                 }
             });
         });
         inspectorFindingDialog.querySelector('[data-close-inspector-finding]')?.addEventListener('click', () => inspectorFindingDialog.close());
+        inspectorFindingDialog.addEventListener('close', () => inspectorRequest?.abort());
+        retryButton.addEventListener('click', () => showInspectorFinding(selectedInspectorRow));
     }
     document.querySelectorAll('[data-report-pagination]').forEach((tableWrap) => {
         const rows = Array.from(tableWrap.querySelectorAll('tbody tr'));

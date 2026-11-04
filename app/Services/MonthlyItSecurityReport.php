@@ -74,7 +74,7 @@ class MonthlyItSecurityReport
         $siteUpdateFindings = $outdatedPlugins->count() + $outdatedCore->count();
         $uptime = $this->uptimeSummary($period);
         $costs = app(AwsCostReport::class)->build();
-        $inspector = app(AwsInspectorReport::class)->build();
+        $inspector = app(AwsInspectorReport::class)->build(false);
         $awsBackups = app(AwsBackupReport::class)->build();
         $ticketChangeHistory = SupportTicketChange::query()->with(['ticket.creator', 'actor'])
             ->where('created_at', '<=', CarbonImmutable::now())->latest()->orderByDesc('id')->get();

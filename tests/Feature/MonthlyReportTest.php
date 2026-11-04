@@ -371,10 +371,75 @@ class MonthlyReportTest extends TestCase
         $this->assertSame('SQL injection src/main.php', $report['findings'][2]['packages']);
     }
 
+    public function test_inspector_summary_does_not_retain_large_finding_details(): void
+    {
+        config(['services.inspector.regions' => ['ap-southeast-2']]);
+        $client = \Mockery::mock(Inspector2Client::class);
+        $client->shouldReceive('listFindings')->once()->andReturn([
+            'findings' => [[
+                'title' => 'Large finding', 'type' => 'PACKAGE_VULNERABILITY', 'severity' => 'HIGH',
+                'findingArn' => 'arn:aws:inspector2:ap-southeast-2:123456789012:finding/example',
+                'description' => str_repeat('Large detailed description ', 100000),
+                'fixAvailable' => 'YES', 'exploitAvailable' => 'NO',
+                'resources' => [['id' => 'i-large', 'type' => 'AWS_EC2_INSTANCE']],
+                'packageVulnerabilityDetails' => [
+                    'vulnerabilityId' => 'CVE-LARGE',
+                    'referenceUrls' => [str_repeat('x', 1000000)],
+                    'vulnerablePackages' => [['name' => 'openssl', 'filePath' => str_repeat('x', 1000000)]],
+                ],
+            ]],
+        ]);
+
+        $report = (new AwsInspectorReport($client))->build(false);
+
+        $this->assertSame(1, $report['total']);
+        $this->assertSame(1, $report['counts']['HIGH']);
+        $this->assertSame(1, $report['fix_available_machines'][0]['all']);
+        $this->assertSame('CVE-LARGE', $report['findings'][0]['vulnerability_id']);
+        $this->assertArrayNotHasKey('description', $report['findings'][0]);
+        $this->assertArrayNotHasKey('reference_urls', $report['findings'][0]);
+        $this->assertArrayNotHasKey('package_details', $report['findings'][0]);
+        $this->assertLessThan(5000, strlen(json_encode($report)));
+    }
+
+    public function test_monthly_page_handles_large_paginated_inspector_results_without_embedding_details(): void
+    {
+        config(['services.inspector.regions' => ['ap-southeast-2']]);
+        $client = \Mockery::mock(Inspector2Client::class);
+        $page = 0;
+        $client->shouldReceive('listFindings')->times(100)->andReturnUsing(function ($params) use (&$page) {
+            $this->assertSame($page === 0 ? null : (string) $page, $params['nextToken'] ?? null);
+            $page++;
+            $findings = [];
+            foreach (range(1, 100) as $offset) {
+                $number = ($page - 1) * 100 + $offset;
+                $findings[] = [
+                    'title' => 'Paginated finding '.$number,
+                    'findingArn' => 'arn:aws:inspector2:ap-southeast-2:123456789012:finding/example-'.$number,
+                    'type' => 'PACKAGE_VULNERABILITY', 'severity' => 'HIGH', 'fixAvailable' => 'YES',
+                    'description' => str_repeat('DETAIL-ONLY-'.$number.' ', 2500),
+                    'resources' => [['id' => 'i-paginated', 'type' => 'AWS_EC2_INSTANCE']],
+                ];
+            }
+
+            return ['findings' => $findings, 'nextToken' => $page < 100 ? (string) $page : null];
+        });
+        $this->app->instance(AwsInspectorReport::class, new AwsInspectorReport($client));
+        $settings = MonthlyReportSetting::current();
+
+        $response = $this->get(route('monthly-reports.public', ['token' => $settings->public_token]));
+
+        $response->assertOk()->assertSee('10,000 active package and code vulnerability')
+            ->assertSee('Paginated finding 10000')
+            ->assertSee('data-inspector-finding-arn=', false)
+            ->assertDontSee('DETAIL-ONLY-')
+            ->assertDontSee('const inspectorFindings =', false);
+    }
+
     public function test_inspector_coverage_tiles_show_reported_yes_partial_and_missing_counts(): void
     {
         $inspectorReport = \Mockery::mock(AwsInspectorReport::class);
-        $inspectorReport->shouldReceive('build')->once()->andReturn([
+        $inspectorReport->shouldReceive('build')->once()->with(false)->andReturn([
             'available' => true,
             'partial' => false,
             'regions' => ['ap-southeast-2'],
@@ -462,7 +527,8 @@ class MonthlyReportTest extends TestCase
             ->assertSee('Finding description')
             ->assertSee('Vulnerable packages')
             ->assertSee('CVSS scores')
-            ->assertSee('inspectorFindings', false)
+            ->assertDontSee('const inspectorFindings =', false)
+            ->assertSee('data-inspector-loading-status', false)
             ->assertSee('Age')
             ->assertSee('First observed at')
             ->assertSee('41 days')
@@ -477,6 +543,68 @@ class MonthlyReportTest extends TestCase
         preg_match('~<button\b(?=[^>]*data-open-inspector-machines)[^>]*>(.*?)</button>~s', $response->getContent(), $buttonMatch);
         $buttonText = preg_replace('/\s+/', '', strip_tags($buttonMatch[1] ?? ''));
         $this->assertSame('408', $buttonText);
+    }
+
+    public function test_inspector_details_require_a_valid_token_and_a_configured_region(): void
+    {
+        config(['services.inspector.regions' => ['ap-southeast-2']]);
+        $client = \Mockery::mock(Inspector2Client::class);
+        $client->shouldNotReceive('listFindings');
+        $this->app->instance(AwsInspectorReport::class, new AwsInspectorReport($client));
+        $settings = MonthlyReportSetting::current();
+        $this->getJson(route('monthly-reports.inspector-finding', ['token' => 'invalid']))->assertNotFound();
+        $url = route('monthly-reports.inspector-finding', ['token' => $settings->public_token]);
+        $this->getJson($url)->assertUnprocessable();
+        $this->getJson($url.'?arn=invalid')->assertNotFound();
+        $this->getJson($url.'?'.http_build_query(['arn' => 'arn:aws:inspector2:us-east-1:123456789012:finding/example']))->assertNotFound();
+    }
+
+    public function test_inspector_details_fetch_only_the_requested_finding(): void
+    {
+        config(['services.inspector.regions' => ['ap-southeast-2']]);
+        $arn = 'arn:aws:inspector2:ap-southeast-2:123456789012:finding/example';
+        $client = \Mockery::mock(Inspector2Client::class);
+        $client->shouldReceive('listFindings')->once()->with([
+            'filterCriteria' => [
+                'findingArn' => [['comparison' => 'EQUALS', 'value' => $arn]],
+                'findingStatus' => [['comparison' => 'EQUALS', 'value' => 'ACTIVE']],
+                'findingType' => [
+                    ['comparison' => 'EQUALS', 'value' => 'PACKAGE_VULNERABILITY'],
+                    ['comparison' => 'EQUALS', 'value' => 'CODE_VULNERABILITY'],
+                ],
+            ],
+            'maxResults' => 1,
+        ])->andReturn(['findings' => [[
+            'findingArn' => $arn, 'title' => 'Requested finding', 'description' => 'Full details on demand',
+            'packageVulnerabilityDetails' => ['vulnerablePackages' => [['name' => 'openssl', 'version' => '3.0.0']]],
+        ]]]);
+        $this->app->instance(AwsInspectorReport::class, new AwsInspectorReport($client));
+        $settings = MonthlyReportSetting::current();
+        $url = route('monthly-reports.inspector-finding', ['token' => $settings->public_token, 'arn' => $arn]);
+
+        $this->getJson($url)->assertOk()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertHeader('X-Robots-Tag', 'noindex, nofollow')
+            ->assertHeader('Referrer-Policy', 'no-referrer')
+            ->assertJsonPath('finding_arn', $arn)
+            ->assertJsonPath('description', 'Full details on demand')
+            ->assertJsonPath('package_details.0.name', 'openssl');
+        $settings->rotatePublicToken();
+        $this->getJson($url)->assertNotFound();
+    }
+
+    public function test_inspector_details_handle_missing_findings_and_aws_failures(): void
+    {
+        $arn = 'arn:aws:inspector2:ap-southeast-2:123456789012:finding/example';
+        $inspector = \Mockery::mock(AwsInspectorReport::class);
+        $inspector->shouldReceive('finding')->once()->with($arn)->andReturn(null);
+        $inspector->shouldReceive('finding')->once()->with($arn)->andThrow(new \RuntimeException('AWS unavailable'));
+        $this->app->instance(AwsInspectorReport::class, $inspector);
+        $settings = MonthlyReportSetting::current();
+        $url = route('monthly-reports.inspector-finding', ['token' => $settings->public_token, 'arn' => $arn]);
+
+        $this->getJson($url)->assertNotFound();
+        $this->getJson($url)->assertStatus(502)->assertJsonPath('message', 'Inspector finding details could not be retrieved.');
     }
 
     public function test_admin_can_change_the_manager_email_and_rotate_the_report_link(): void

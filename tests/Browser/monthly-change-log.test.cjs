@@ -13,7 +13,7 @@ function element(properties = {}) {
         textContent: '',
         listeners: {},
         addEventListener(event, listener) { this.listeners[event] = listener; },
-        emit(event) { this.listeners[event]?.({}); },
+        emit(event) { return this.listeners[event]?.({}); },
         ...properties,
     };
 }
@@ -105,4 +105,91 @@ test('keeps filters working for empty and single-row histories', () => {
     single.month.value = '2026-09';
     single.month.emit('change');
     assert.equal(single.visible().length, 1);
+});
+
+function setupInspector(fetch) {
+    const targets = {};
+    const dialog = element({
+        open: false,
+        querySelector(selector) {
+            return targets[selector] ||= element({
+                replaceChildren() {}, appendChild() {},
+            });
+        },
+        setAttribute(key, value) { this[key] = value; },
+        removeAttribute(key) { delete this[key]; },
+        showModal() { this.open = true; },
+        close() { this.open = false; this.emit('close'); },
+    });
+    const findingRow = element({
+        dataset: { inspectorFindingArn: 'arn:aws:inspector2:ap-southeast-2:123456789012:finding/example' },
+        cells: [{}, { firstChild: { textContent: 'Finding title' } }],
+    });
+    const script = template.slice(template.indexOf("    const inspectorFindingDialog ="), template.indexOf("    document.querySelectorAll('[data-report-pagination]')"));
+    runInNewContext(script, {
+        document: {
+            getElementById: () => dialog,
+            querySelectorAll: () => [findingRow],
+            createElement: () => element({ appendChild() {} }),
+        },
+        window: { location: { href: 'https://dashboard.example.test/reports/monthly/report-token?old=value' } },
+        URL, AbortController, fetch,
+    });
+    return { dialog, findingRow, targets };
+}
+
+test('loads only clicked Inspector finding details and shows loading state', async () => {
+    let respond;
+    let calls = 0;
+    const state = setupInspector((url, options) => {
+        calls++;
+        assert.equal(url.pathname, '/reports/monthly/report-token/inspector-finding');
+        assert.equal(url.searchParams.get('arn'), state.findingRow.dataset.inspectorFindingArn);
+        assert.equal(url.searchParams.has('old'), false);
+        assert.equal(options.cache, 'no-store');
+        return new Promise((resolve) => { respond = resolve; });
+    });
+    assert.equal(calls, 0);
+    const pending = state.findingRow.emit('click');
+    assert.equal(state.dialog.open, true);
+    assert.equal(state.dialog['aria-busy'], 'true');
+    assert.equal(state.targets['[data-inspector-loading-status]'].textContent, 'Loading finding details...');
+    respond({ ok: true, json: async () => ({ title: 'Full finding title', description: 'Full description' }) });
+    await pending;
+    assert.equal(calls, 1);
+    assert.equal(state.targets['#inspector-finding-title'].textContent, 'Full finding title');
+    assert.equal(state.targets['[data-inspector-detail="description"]'].textContent, 'Full description');
+    assert.equal(state.targets['[data-inspector-loading-status]'].textContent, '');
+    assert.equal(state.dialog['aria-busy'], undefined);
+});
+
+test('Inspector detail failures offer retry and clear errors after success', async () => {
+    let calls = 0;
+    const state = setupInspector(async () => ++calls === 1
+        ? { ok: false, status: 502 }
+        : { ok: true, json: async () => ({ title: 'Recovered finding' }) });
+    await state.findingRow.emit('click');
+    assert.equal(state.targets['[data-retry-inspector-finding]'].hidden, false);
+    assert.match(state.targets['[data-inspector-loading-status]'].textContent, /Please retry/);
+    await state.targets['[data-retry-inspector-finding]'].emit('click');
+    assert.equal(calls, 2);
+    assert.equal(state.targets['[data-retry-inspector-finding]'].hidden, true);
+    assert.equal(state.targets['[data-inspector-loading-status]'].textContent, '');
+    assert.equal(state.targets['#inspector-finding-title'].textContent, 'Recovered finding');
+});
+
+test('closing the Inspector dialog cancels loading without reopening it', async () => {
+    let respond;
+    let signal;
+    const state = setupInspector((url, options) => {
+        signal = options.signal;
+        return new Promise((resolve) => { respond = resolve; });
+    });
+    const pending = state.findingRow.emit('click');
+    state.dialog.close();
+    assert.equal(signal.aborted, true);
+    respond({ ok: true, json: async () => ({ title: 'Stale finding' }) });
+    await pending;
+    assert.equal(state.dialog.open, false);
+    assert.equal(state.targets['#inspector-finding-title'].textContent, 'Finding title');
 });

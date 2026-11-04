@@ -11,7 +11,7 @@ class AwsInspectorReport
     {
     }
 
-    public function build(): array
+    public function build(bool $includeDetails = true): array
     {
         $regions = config('services.inspector.regions', [config('services.aws.region')]);
         $regions = array_values(array_unique(array_filter(array_map('trim', $regions))));
@@ -51,7 +51,7 @@ class AwsInspectorReport
 
                     $result = $client->listFindings($params);
                     foreach ($result['findings'] ?? [] as $finding) {
-                        $findings[] = $this->formatFinding($finding, $region);
+                        $findings[] = $this->formatFinding($finding, $region, $includeDetails);
                     }
                     $nextToken = $result['nextToken'] ?? null;
                 } while ($nextToken);
@@ -107,7 +107,39 @@ class AwsInspectorReport
         ];
     }
 
-    private function formatFinding(array $finding, string $region): array
+    public function finding(string $arn): ?array
+    {
+        if (! preg_match('/^arn:aws(?:-us-gov|-cn)?:inspector2:([a-z0-9-]+):[0-9]{12}:finding\/[a-zA-Z0-9-]+$/', $arn, $matches)) {
+            return null;
+        }
+        $region = $matches[1];
+        $regions = config('services.inspector.regions', [config('services.aws.region')]);
+        $regions = array_values(array_unique(array_filter(array_map('trim', $regions))));
+        $regions = $regions ?: [config('services.aws.region', 'us-east-1')];
+        if (! in_array($region, $regions, true) || (app()->environment('testing') && $this->client === null)) {
+            return null;
+        }
+        $client = $this->client ?? new Inspector2Client([
+            'version' => 'latest', 'region' => $region, 'retries' => 0,
+            'http' => ['connect_timeout' => 3, 'timeout' => 8],
+        ]);
+        $result = $client->listFindings([
+            'filterCriteria' => [
+                'findingArn' => [['comparison' => 'EQUALS', 'value' => $arn]],
+                'findingStatus' => [['comparison' => 'EQUALS', 'value' => 'ACTIVE']],
+                'findingType' => [
+                    ['comparison' => 'EQUALS', 'value' => 'PACKAGE_VULNERABILITY'],
+                    ['comparison' => 'EQUALS', 'value' => 'CODE_VULNERABILITY'],
+                ],
+            ],
+            'maxResults' => 1,
+        ]);
+        $finding = $result['findings'][0] ?? null;
+
+        return $finding && ($finding['findingArn'] ?? null) === $arn ? $this->formatFinding($finding, $region) : null;
+    }
+
+    private function formatFinding(array $finding, string $region, bool $includeDetails = true): array
     {
         $resources = array_map(function ($resource) use ($finding, $region) {
             $instance = $resource['details']['awsEc2Instance'] ?? [];
@@ -156,9 +188,8 @@ class AwsInspectorReport
             ? (int) $firstObservedAt->startOfDay()->diffInDays(CarbonImmutable::now(config('app.timezone'))->startOfDay())
             : null;
 
-        return [
+        $summary = [
             'title' => $finding['title'] ?? 'Untitled vulnerability finding',
-            'description' => $finding['description'] ?? null,
             'type' => strtoupper($finding['type'] ?? 'VULNERABILITY'),
             'severity' => strtoupper($finding['severity'] ?? 'UNTRIAGED'),
             'resource' => $resource['id'] ?? 'Unknown resource',
@@ -167,6 +198,22 @@ class AwsInspectorReport
             'vulnerability_id' => $vulnerability['vulnerabilityId'] ?? implode(', ', $codeVulnerability['cwes'] ?? []),
             'packages' => implode(', ', array_slice($packageNames, 0, 3)) ?: ($codeLocation ?: 'Not provided'),
             'fixed_versions' => implode(', ', array_slice($fixedVersions, 0, 3)),
+            'exploit_available' => $this->availabilityStatus($finding['exploitAvailable'] ?? null),
+            'fix_available' => $this->availabilityStatus($finding['fixAvailable'] ?? null),
+            'first_observed_at' => $firstObservedAt,
+            'first_observed_at_display' => $firstObservedAt?->format('j M Y, H:i T'),
+            'age_days' => $ageDays,
+            'finding_arn' => $finding['findingArn'] ?? null,
+            'resources' => $resources,
+            'machine_keys' => array_values(array_unique(array_column(array_filter($resources, fn ($item) => $item['type'] === 'AWS_EC2_INSTANCE'), 'key'))),
+        ];
+
+        if (! $includeDetails) {
+            return $summary;
+        }
+
+        return $summary + [
+            'description' => $finding['description'] ?? null,
             'package_details' => $packageDetails,
             'remediation' => $finding['remediation']['recommendation']['text'] ?? null,
             'remediation_url' => $finding['remediation']['recommendation']['Url'] ?? null,
@@ -177,14 +224,6 @@ class AwsInspectorReport
             'reference_urls' => $vulnerability['referenceUrls'] ?? [],
             'related_vulnerabilities' => array_values(array_filter(array_map(fn ($related) => $related['vulnerabilityId'] ?? null, $vulnerability['relatedVulnerabilities'] ?? []))),
             'cwes' => $codeVulnerability['cwes'] ?? [],
-            'exploit_available' => $this->availabilityStatus($finding['exploitAvailable'] ?? null),
-            'fix_available' => $this->availabilityStatus($finding['fixAvailable'] ?? null),
-            'first_observed_at' => $firstObservedAt,
-            'first_observed_at_display' => $firstObservedAt?->format('j M Y, H:i T'),
-            'age_days' => $ageDays,
-            'finding_arn' => $finding['findingArn'] ?? null,
-            'resources' => $resources,
-            'machine_keys' => array_values(array_unique(array_column(array_filter($resources, fn ($item) => $item['type'] === 'AWS_EC2_INSTANCE'), 'key'))),
         ];
     }
 

@@ -30,6 +30,10 @@ Route::get('/reports/monthly/{token}', [MonthlyReportController::class, 'publicR
     ->middleware('throttle:30,1')
     ->name('monthly-reports.public');
 
+Route::get('/reports/monthly/{token}/inspector-finding', [MonthlyReportController::class, 'inspectorFinding'])
+    ->middleware('throttle:60,1')
+    ->name('monthly-reports.inspector-finding');
+
 Route::middleware('guest')->group(function () {
     Route::get('/login/authenticator', [TwoFactorAuthenticationController::class, 'show'])->name('mfa.challenge');
     Route::post('/login/authenticator', [TwoFactorAuthenticationController::class, 'verify'])->middleware('throttle:10,1,mfa:')->name('mfa.verify');
