@@ -237,6 +237,8 @@ For live data, set `AWS_SYNC_USE_MOCK=false`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_A
 
 ### Other Servers: InvalidInstanceId
 
+**Test connection** uses the saved AWS instance ID to call `ssm:DescribeInstanceInformation` and check the managed node's `PingStatus`. It does not resolve the hostname, connect to SSH/port 22, run commands, or change report data. Online confirms SSM registration and connectivity, not `ssm:SendCommand` permission or reporting-agent installation. The button requires an AWS instance ID; mock mode explicitly reports that no real AWS access was verified. Both SSM buttons currently use the dashboard's configured AWS credentials and region, so instances in another account will remain unavailable until cross-account role support is configured and implemented. Push-agent reporting is independent of this check.
+
 Adding an Other Server does not contact AWS. On this page, **Patch now** only runs `/usr/local/bin/serverdashboard-agent.sh` via SSM to refresh update counts; it does not install patches. An `InvalidInstanceId` response means SSM cannot target the saved instance using the dashboard's AWS account and configured region. The server remains registered.
 
 1. Verify the saved EC2 instance ID and that the dashboard's AWS identity belongs to the instance's account. Confirm `AWS_DEFAULT_REGION` matches the instance's region (the reported endpoint `ssm.ap-southeast-2.amazonaws.com` is Sydney). After changing production configuration, rebuild Laravel's configuration cache with `php artisan config:cache`.

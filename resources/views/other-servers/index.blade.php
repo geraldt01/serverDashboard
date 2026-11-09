@@ -105,7 +105,7 @@
                         <td>{{ $server->php_version ?? '—' }}@if($server->php_update_available)<br><span class="badge warning">update available</span>@endif</td>
                         <td>
                             <div class="actions">
-                                <form method="POST" action="{{ route('other-servers.test-connection', $server) }}">@csrf<button type="submit" class="secondary" @if(! $server->hostname) disabled title="Set a hostname to test connectivity" @endif>Test connection</button></form>
+                                <form method="POST" action="{{ route('other-servers.test-connection', $server) }}">@csrf<button type="submit" class="secondary" title="{{ $server->aws_instance_id ? 'Check SSM managed-node status without SSH' : 'Set an AWS instance ID to test SSM access' }}" @if(! $server->aws_instance_id) disabled @endif>Test connection</button></form>
                                 <form method="POST" action="{{ route('other-servers.patch-now', $server) }}">@csrf<button type="submit" @if(! $server->aws_instance_id) disabled title="Set an AWS instance ID to enable manual patch checks" @endif>Patch now</button></form>
                                 <form method="POST" action="{{ route('other-servers.rotate-token', $server) }}">@csrf<button type="submit">Rotate token</button></form>
                                 @if(! $server->is_active)
@@ -130,7 +130,7 @@
                 </tbody>
             </table>
         </div>
-        <p class="muted" style="margin-top:10px;">"Test connection" resolves the server's hostname and checks that TCP port 22 (SSH) accepts connections &mdash; it does not log in or use any credentials. Loopback and link-local addresses (including the cloud metadata service) are always rejected.</p>
+        <p class="muted" style="margin-top:10px;">"Test connection" checks whether the saved AWS instance ID is Online in Systems Manager using the dashboard's AWS account and region. It requires <code>ssm:DescribeInstanceInformation</code> permission, does not use SSH or run commands, and does not verify reporting-agent installation or Run Command permissions. Instances in another AWS account require cross-account role access.</p>
         <p class="muted">"Patch now" runs the update-check script immediately via AWS Systems Manager Run Command (no SSH keys stored by the dashboard) instead of waiting for the agent's 3-hour timer. It requires the SSM Agent and an IAM instance profile with Systems Manager access on the target instance, plus an AWS instance ID set above.</p>
     </section>
 

@@ -16,6 +16,89 @@ class OtherServerReportingTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_connection_checks_ssm_status_without_a_hostname_or_running_commands(): void
+    {
+        config(['services.monitoring.mock_mode' => false, 'services.aws.region' => 'ap-southeast-2']);
+        $server = $this->createServer('Nexus Configapp', 'nexus-configapp', 'nexus-token', [
+            'aws_instance_id' => 'i-0123456789abcdef0',
+        ]);
+        $originalAttributes = $server->fresh()->getAttributes();
+        $handler = new MockHandler();
+        $this->app->bind(SsmClient::class, function ($app, $parameters) use ($handler) {
+            $this->assertSame('ap-southeast-2', $parameters['args']['region']);
+
+            return new SsmClient(array_merge($parameters['args'], [
+                'credentials' => ['key' => 'testing', 'secret' => 'testing'],
+                'handler' => $handler,
+            ]));
+        });
+        $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
+
+        foreach (['Online', 'ConnectionLost', 'Inactive', null] as $pingStatus) {
+            $node = ['InstanceId' => $server->aws_instance_id];
+            if ($pingStatus !== null) {
+                $node['PingStatus'] = $pingStatus;
+            }
+            $handler->append(new Result(['InstanceInformationList' => [$node]]));
+            $response = $this->post(route('other-servers.test-connection', $server))
+                ->assertRedirect(route('other-servers.index'));
+
+            if ($pingStatus === 'Online') {
+                $response->assertSessionHas('status', fn ($message) => str_contains($message, 'is Online'));
+                $this->get(route('other-servers.index'))->assertOk()
+                    ->assertSee('Check SSM managed-node status without SSH')
+                    ->assertDontSee('TCP port 22');
+            } else {
+                $response->assertSessionHas('error', fn ($message) => str_contains($message, 'ping status is ' . ($pingStatus ?? 'Unknown')));
+            }
+
+            $command = $handler->getLastCommand();
+            $this->assertSame('DescribeInstanceInformation', $command->getName());
+            $this->assertSame([['Key' => 'InstanceIds', 'Values' => [$server->aws_instance_id]]], $command['Filters']);
+            $this->assertSame($originalAttributes, $server->fresh()->getAttributes());
+        }
+
+        $handler->append(new Result(['InstanceInformationList' => []]));
+        $this->post(route('other-servers.test-connection', $server))
+            ->assertRedirect(route('other-servers.index'))
+            ->assertSessionHas('error', fn ($message) => str_contains($message, 'not registered')
+                && str_contains($message, 'ap-southeast-2')
+                && str_contains($message, 'cross-account role access'));
+
+        $handler->append(new SsmException('Access denied', new Command('DescribeInstanceInformation'), ['code' => 'AccessDeniedException']));
+        $this->post(route('other-servers.test-connection', $server))
+            ->assertRedirect(route('other-servers.index'))
+            ->assertSessionHas('error', fn ($message) => str_contains($message, 'ssm:DescribeInstanceInformation')
+                && str_contains($message, 'Access denied'));
+        $this->assertSame($originalAttributes, $server->fresh()->getAttributes());
+    }
+
+    public function test_connection_requires_an_instance_id_and_mock_mode_does_not_contact_aws(): void
+    {
+        $this->app->bind(SsmClient::class, function () {
+            $this->fail('Missing instance ID and mock mode must not contact AWS.');
+        });
+        $server = $this->createServer('Nexus Configapp', 'nexus-configapp', 'nexus-token', ['hostname' => 'example.com']);
+        $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
+
+        $this->post(route('other-servers.test-connection', $server))
+            ->assertRedirect(route('other-servers.index'))
+            ->assertSessionHas('error', fn ($message) => str_contains($message, 'no AWS instance ID'));
+        $this->get(route('other-servers.index'))->assertOk()
+            ->assertSee('Set an AWS instance ID to test SSM access');
+
+        config(['services.monitoring.mock_mode' => true]);
+        $server->update(['aws_instance_id' => 'i-0123456789abcdef0']);
+        $originalAttributes = $server->fresh()->getAttributes();
+        $this->post(route('other-servers.test-connection', $server))
+            ->assertRedirect(route('other-servers.index'))
+            ->assertSessionHas('status', fn ($message) => str_contains($message, '(Mock mode)')
+                && str_contains($message, 'No AWS access was verified'));
+        $this->assertSame($originalAttributes, $server->fresh()->getAttributes());
+    }
+
     public function test_adding_a_server_does_not_require_aws_ssm(): void
     {
         $this->app->bind(SsmClient::class, function () {

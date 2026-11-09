@@ -97,39 +97,48 @@ class OtherServerController extends Controller
 
     public function testConnection(OtherServer $otherServer)
     {
-        $hostname = trim((string) $otherServer->hostname);
+        $instanceId = trim((string) $otherServer->aws_instance_id);
 
-        if ($hostname === '') {
+        if ($instanceId === '') {
             return redirect()->route('other-servers.index')
-                ->with('status', "Cannot test {$otherServer->name}: no hostname/EC2 address is set for this server.");
+                ->with('error', "Cannot test SSM access for {$otherServer->name}: no AWS instance ID is set for this server.");
         }
 
-        $ip = $this->resolveIp($hostname);
-
-        if ($ip === null) {
+        if (config('services.monitoring.mock_mode')) {
             return redirect()->route('other-servers.index')
-                ->with('status', "Connection test for {$otherServer->name} failed: \"{$hostname}\" could not be resolved via DNS from this server. Verify the hostname is correct and that this server has outbound DNS access.");
+                ->with('status', "(Mock mode) SSM connection test simulated for {$otherServer->name}. No AWS access was verified.");
         }
 
-        // RFC1918 private ranges are allowed (EC2 public hostnames resolve to the private VPC IP when queried from inside the same VPC).
-        // Still block loopback/link-local so this can't be used to probe the dashboard's own host or the cloud metadata service (169.254.169.254).
-        if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_RES_RANGE)) {
+        $region = config('services.aws.region');
+
+        try {
+            $ssm = app(SsmClient::class, ['args' => ['version' => 'latest', 'region' => $region]]);
+            $result = $ssm->describeInstanceInformation([
+                'Filters' => [['Key' => 'InstanceIds', 'Values' => [$instanceId]]],
+            ]);
+            $instance = collect($result['InstanceInformationList'] ?? [])
+                ->firstWhere('InstanceId', $instanceId);
+
+            if ($instance === null) {
+                return redirect()->route('other-servers.index')
+                    ->with('error', "SSM connection test failed for {$otherServer->name}: instance {$instanceId} is not registered with Systems Manager in {$region} using the dashboard's AWS account. Verify the instance ID, account and region, and the instance's SSM Agent and IAM role. A server in another AWS account requires cross-account role access; scheduled agent reports do not require it.");
+            }
+
+            $pingStatus = $instance['PingStatus'] ?? 'Unknown';
+
+            if ($pingStatus !== 'Online') {
+                return redirect()->route('other-servers.index')
+                    ->with('error', "SSM connection test failed for {$otherServer->name} ({$instanceId}, {$region}): ping status is {$pingStatus}. Confirm the instance is running, the SSM Agent and IAM role are configured, and outbound HTTPS access to Systems Manager is available. No inbound SSH access is required.");
+            }
+
             return redirect()->route('other-servers.index')
-                ->with('status', "Connection test for {$otherServer->name} blocked: \"{$hostname}\" resolves to {$ip}, a reserved/link-local address.");
-        }
-
-        $port = 22;
-        $connection = @fsockopen($ip, $port, $errno, $errstr, 5);
-
-        if ($connection) {
-            fclose($connection);
+                ->with('status', "SSM connection test succeeded: {$otherServer->name} ({$instanceId}, {$region}) is Online in Systems Manager. No SSH connection was attempted. This read-only check does not verify SendCommand permission or the ServerDashboard reporting agent installation.");
+        } catch (\Throwable $exception) {
+            report($exception);
 
             return redirect()->route('other-servers.index')
-                ->with('status', "Connection test succeeded: {$otherServer->name} ({$hostname}:{$port}) is reachable.");
+                ->with('error', "SSM connection test failed for {$otherServer->name} ({$instanceId}, {$region}). Verify the dashboard's AWS credentials and ssm:DescribeInstanceInformation permission: {$exception->getMessage()}");
         }
-
-        return redirect()->route('other-servers.index')
-            ->with('status', "Connection test failed: {$otherServer->name} ({$hostname}:{$port}) is not reachable ({$errstr}).");
     }
 
     /**
@@ -188,30 +197,6 @@ class OtherServerController extends Controller
             return redirect()->route('other-servers.index')
                 ->with('error', "Failed to trigger patch check for {$otherServer->name}: {$exception->getMessage()}");
         }
-    }
-
-    /**
-     * Resolve a hostname to an IPv4 address, falling back to a direct DNS query
-     * if the system resolver (gethostbyname) can't reach it.
-     */
-    private function resolveIp(string $hostname): ?string
-    {
-        if (filter_var($hostname, FILTER_VALIDATE_IP)) {
-            return $hostname;
-        }
-
-        $viaSystemResolver = gethostbyname($hostname);
-        if ($viaSystemResolver !== $hostname && filter_var($viaSystemResolver, FILTER_VALIDATE_IP)) {
-            return $viaSystemResolver;
-        }
-
-        foreach (@dns_get_record($hostname, DNS_A) ?: [] as $record) {
-            if (isset($record['ip']) && filter_var($record['ip'], FILTER_VALIDATE_IP)) {
-                return $record['ip'];
-            }
-        }
-
-        return null;
     }
 
     public function report(Request $request, OtherServer $otherServer)
