@@ -18,6 +18,80 @@ class OtherServerReportingTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_all_servers_use_ssm_with_their_own_instance_and_account_configuration(): void
+    {
+        config(['services.monitoring.mock_mode' => false, 'services.aws.region' => 'ap-southeast-2']);
+        $sameAccount = $this->createServer('Same account server', 'same-account', 'same-account-token', [
+            'aws_instance_id' => 'i-0123456789abcdef0',
+        ]);
+        $firstCrossAccount = $this->createServer('First cross-account server', 'first-cross-account', 'first-cross-token', [
+            'aws_instance_id' => 'i-0123456789abcdef1',
+            'aws_role_arn' => 'arn:aws:iam::111111111111:role/MonitoringAccess',
+        ]);
+        $secondCrossAccount = $this->createServer('Second cross-account server', 'second-cross-account', 'second-cross-token', [
+            'aws_instance_id' => 'i-0123456789abcdef2',
+            'aws_role_arn' => 'arn:aws:iam::222222222222:role/MonitoringAccess',
+        ]);
+        $stsHandler = new MockHandler();
+        $ssmHandler = new MockHandler();
+        $expectedServer = null;
+        $stsCalls = 0;
+        $this->app->bind(StsClient::class, function ($app, $parameters) use ($stsHandler, &$stsCalls) {
+            $stsCalls++;
+
+            return new StsClient(array_merge($parameters['args'], [
+                'credentials' => ['key' => 'dashboard-testing', 'secret' => 'dashboard-testing'],
+                'handler' => $stsHandler,
+            ]));
+        });
+        $this->app->bind(SsmClient::class, function ($app, $parameters) use ($ssmHandler, &$expectedServer) {
+            if ($expectedServer->aws_role_arn) {
+                $this->assertSame('server-' . $expectedServer->id, $parameters['args']['credentials']->getAccessKeyId());
+                $this->assertSame('session-' . $expectedServer->id, $parameters['args']['credentials']->getSecurityToken());
+            } else {
+                $this->assertArrayNotHasKey('credentials', $parameters['args']);
+                $parameters['args']['credentials'] = ['key' => 'dashboard-testing', 'secret' => 'dashboard-testing'];
+            }
+
+            return new SsmClient(array_merge($parameters['args'], ['handler' => $ssmHandler]));
+        });
+        $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
+
+        foreach ([$sameAccount, $firstCrossAccount, $secondCrossAccount, $sameAccount] as $server) {
+            $expectedServer = $server;
+            $originalAttributes = $server->fresh()->getAttributes();
+
+            foreach (['test-connection', 'patch-now'] as $action) {
+                $previousStsCalls = $stsCalls;
+                if ($server->aws_role_arn) {
+                    $stsHandler->append(new Result(['Credentials' => [
+                        'AccessKeyId' => 'server-' . $server->id,
+                        'SecretAccessKey' => 'testing-secret',
+                        'SessionToken' => 'session-' . $server->id,
+                        'Expiration' => new \DateTimeImmutable('+15 minutes'),
+                    ]]));
+                }
+                $ssmHandler->append(new Result($action === 'test-connection'
+                    ? ['InstanceInformationList' => [['InstanceId' => $server->aws_instance_id, 'PingStatus' => 'Online']]]
+                    : ['Command' => ['CommandId' => 'command-' . $server->id]]));
+                $this->post(route('other-servers.' . $action, $server))
+                    ->assertRedirect(route('other-servers.index'))
+                    ->assertSessionHas('status', fn ($message) => str_contains($message, $server->name)
+                        && str_contains($message, $action === 'test-connection' ? 'is Online' : 'command-' . $server->id));
+
+                $command = $ssmHandler->getLastCommand();
+                $this->assertSame($action === 'test-connection' ? 'DescribeInstanceInformation' : 'SendCommand', $command->getName());
+                $this->assertSame([$server->aws_instance_id], $action === 'test-connection' ? $command['Filters'][0]['Values'] : $command['InstanceIds']);
+                $this->assertSame($server->aws_role_arn ? $previousStsCalls + 1 : $previousStsCalls, $stsCalls);
+                if ($server->aws_role_arn) {
+                    $this->assertSame($server->aws_role_arn, $stsHandler->getLastCommand()['RoleArn']);
+                }
+                $this->assertSame($originalAttributes, $server->fresh()->getAttributes());
+            }
+        }
+    }
+
     public function test_admin_can_save_validate_and_clear_a_servers_aws_role_arn(): void
     {
         $roleArn = 'arn:aws:iam::744763754042:role/ServerDashboardNexusSsm';
