@@ -167,6 +167,43 @@ class OtherServerPatchDryRunTest extends TestCase
         $this->assertSame(0, OtherServerPatchRun::count());
     }
 
+    public function test_disabled_dry_run_explains_missing_configuration_beside_the_button(): void
+    {
+        $server = $this->server();
+        $server->update(['critical_services' => null]);
+        config(['services.patching.alert_email' => null]);
+        $this->signIn();
+        $this->get(route('other-servers.index'))->assertOk()
+            ->assertSee('Dry run unavailable:')
+            ->assertSee('Set critical service names in Edit server settings.')
+            ->assertSee('Configure a valid PATCH_ALERT_EMAIL on the dashboard.')
+            ->assertSee('disabled aria-describedby="dry-run-blockers-' . $server->id . '"', false)
+            ->assertSee('Edit server settings / critical services');
+    }
+
+    public function test_configured_dry_run_button_is_enabled_and_mock_mode_is_explained(): void
+    {
+        $this->server();
+        $this->signIn();
+        $this->get(route('other-servers.index'))->assertOk()->assertDontSee('Dry run unavailable:');
+        config(['services.monitoring.mock_mode' => true]);
+        $this->get(route('other-servers.index'))->assertOk()
+            ->assertSee('Dry run unavailable:')->assertSee('Disable AWS_SYNC_USE_MOCK on the dashboard.');
+    }
+
+    public function test_stale_queue_explains_scheduler_dependency_without_submitting_commands(): void
+    {
+        $server = $this->server();
+        $run = app(OtherServerPatchDryRun::class)->enqueue($server);
+        $run->update(['created_at' => now()->subMinutes(3)]);
+        $this->signIn();
+        $this->get(route('other-servers.index'))->assertOk()
+            ->assertSee('Wait for the active dry run to complete.')
+            ->assertSee('Waiting for the dashboard scheduler.')
+            ->assertSee('Check that Laravel schedule:run executes every minute.');
+        $this->assertNull($this->ssm->getLastCommand());
+    }
+
     public function test_service_configuration_is_validated_and_legacy_edits_preserve_it(): void
     {
         $server = $this->server();

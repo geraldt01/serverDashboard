@@ -7,6 +7,8 @@
         dialog.other-server-details-dialog .modal-body { padding:20px; }
         dialog.other-server-details-dialog ul { margin:10px 0 0; padding-left:18px; max-height:60vh; overflow:auto; font-size:13px; }
         dialog.other-server-details-dialog .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+        .other-server-actions button:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
+        .other-server-actions button:disabled:hover { filter:none; }
         button.other-server-details-dialog {
             background:#fff;
             color:var(--ink);
@@ -106,9 +108,19 @@
                         <td><span class="badge {{ $server->reboot_required ? 'warning' : 'ok' }}">{{ $server->reboot_required ? 'required' : 'no' }}</span></td>
                         <td>{{ $server->php_version ?? '—' }}@if($server->php_update_available)<br><span class="badge warning">update available</span>@endif</td>
                         <td>
-                            <div class="actions">
+                            @php
+                                $dryRunBlockers = array_keys(array_filter([
+                                    'Set an AWS instance ID.' => ! $server->aws_instance_id,
+                                    'Enable this server.' => ! $server->is_active,
+                                    'Set critical service names in Edit server settings.' => $server->criticalServicesList() === [],
+                                    'Configure a valid PATCH_ALERT_EMAIL on the dashboard.' => ! filter_var($patchAlertEmail, FILTER_VALIDATE_EMAIL),
+                                    'Disable AWS_SYNC_USE_MOCK on the dashboard.' => (bool) config('services.monitoring.mock_mode'),
+                                    'Wait for the active dry run to complete.' => (bool) $server->latestPatchRun?->active_target,
+                                ]));
+                            @endphp
+                            <div class="actions other-server-actions">
                                 <form method="POST" action="{{ route('other-servers.test-connection', $server) }}">@csrf<button type="submit" class="secondary" title="{{ $server->aws_instance_id ? 'Check SSM managed-node status without SSH' : 'Set an AWS instance ID to test SSM access' }}" @if(! $server->aws_instance_id) disabled @endif>Test connection</button></form>
-                                <form method="POST" action="{{ route('other-servers.patch-now', $server) }}">@csrf<input type="hidden" name="mode" value="dry_run"><button type="submit" title="Read-only Inspector plan and critical-service checks; no installation" @if(! $server->aws_instance_id || ! $server->is_active || ! $server->critical_services || ! filter_var($patchAlertEmail, FILTER_VALIDATE_EMAIL) || $server->latestPatchRun?->active_target) disabled @endif>Patch now (dry run)</button></form>
+                                <form method="POST" action="{{ route('other-servers.patch-now', $server) }}">@csrf<input type="hidden" name="mode" value="dry_run"><button type="submit" title="{{ $dryRunBlockers ? implode(' ', $dryRunBlockers) : 'Read-only Inspector plan and critical-service checks; no installation' }}" @if($dryRunBlockers) disabled aria-describedby="dry-run-blockers-{{ $server->id }}" @endif>Patch now (dry run)</button></form>
                                 <button type="button" class="secondary" disabled title="Requires a tested zero-downtime failover / rolling-patch and rollback runbook">Install patches</button>
                                 <form method="POST" action="{{ route('other-servers.refresh-updates', $server) }}">@csrf<button type="submit" class="secondary" @if(! $server->aws_instance_id) disabled @endif>Refresh update status</button></form>
                                 <form method="POST" action="{{ route('other-servers.rotate-token', $server) }}">@csrf<button type="submit">Rotate token</button></form>
@@ -116,11 +128,17 @@
                                     <form method="POST" action="{{ route('other-servers.toggle-active', $server) }}">@csrf<button type="submit" class="secondary">Enable</button></form>
                                 @endif
                             </div>
+                            @if($dryRunBlockers)
+                                <p class="muted" id="dry-run-blockers-{{ $server->id }}" role="status">Dry run unavailable: {{ implode(' ', $dryRunBlockers) }}</p>
+                            @endif
                             @if($server->latestPatchRun)
                                 <p class="muted">Dry run #{{ $server->latestPatchRun->id }}: {{ str_replace('_', ' ', $server->latestPatchRun->status) }}</p>
+                                @if($server->latestPatchRun->status === 'queued')
+                                    <p class="muted">Waiting for the dashboard scheduler. @if($server->latestPatchRun->created_at->lt(now()->subMinutes(2))) Check that Laravel schedule:run executes every minute. @endif</p>
+                                @endif
                             @endif
                             <details style="margin-top:8px;">
-                                <summary class="muted" style="cursor:pointer;">Edit name / hostname / instance ID / AWS role</summary>
+                                <summary class="muted" style="cursor:pointer;">Edit server settings / critical services</summary>
                                 <form method="POST" action="{{ route('other-servers.update-details', $server) }}" class="form-grid" style="margin-top:8px;">
                                     @csrf
                                     <div><label for="other-server-name-{{ $server->id }}">Server name</label><input id="other-server-name-{{ $server->id }}" name="name" value="{{ old('name', $server->name) }}" required><span class="error">@error('name'){{ $message }}@enderror</span></div>
