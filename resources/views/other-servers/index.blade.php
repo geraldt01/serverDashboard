@@ -46,6 +46,7 @@
             <div><label for="other-server-hostname">Hostname / EC2 instance (optional)</label><input id="other-server-hostname" name="hostname" placeholder="ec2-54-206-154-130.ap-southeast-2.compute.amazonaws.com" value="{{ old('hostname') }}"><span class="error">@error('hostname'){{ $message }}@enderror</span></div>
             <div><label for="other-server-instance-id">AWS instance ID (optional, enables manual patch)</label><input id="other-server-instance-id" name="awsInstanceId" placeholder="i-0a1b2c3d4e5f6789a" value="{{ old('awsInstanceId') }}"><span class="error">@error('awsInstanceId'){{ $message }}@enderror</span></div>
             <div><label for="other-server-role-arn">AWS role ARN (optional, cross-account access)</label><input id="other-server-role-arn" name="awsRoleArn" maxlength="2048" placeholder="arn:aws:iam::123456789012:role/ServerDashboardSsmAccess" value="{{ old('awsRoleArn') }}"><span class="error">@error('awsRoleArn'){{ $message }}@enderror</span></div>
+            <div><label for="other-server-critical-services">Critical service names (comma separated)</label><input id="other-server-critical-services" name="criticalServices" maxlength="3000" placeholder="nginx, php8.3-fpm, mysql" value="{{ old('criticalServices') }}"><span class="error">@error('criticalServices'){{ $message }}@enderror</span></div>
             <div style="align-self:end;"><button type="submit">Add server</button></div>
         </form>
     </section>
@@ -107,12 +108,17 @@
                         <td>
                             <div class="actions">
                                 <form method="POST" action="{{ route('other-servers.test-connection', $server) }}">@csrf<button type="submit" class="secondary" title="{{ $server->aws_instance_id ? 'Check SSM managed-node status without SSH' : 'Set an AWS instance ID to test SSM access' }}" @if(! $server->aws_instance_id) disabled @endif>Test connection</button></form>
-                                <form method="POST" action="{{ route('other-servers.patch-now', $server) }}">@csrf<button type="submit" @if(! $server->aws_instance_id) disabled title="Set an AWS instance ID to enable manual patch checks" @endif>Patch now</button></form>
+                                <form method="POST" action="{{ route('other-servers.patch-now', $server) }}">@csrf<input type="hidden" name="mode" value="dry_run"><button type="submit" title="Read-only Inspector plan and critical-service checks; no installation" @if(! $server->aws_instance_id || ! $server->is_active || ! $server->critical_services || ! filter_var($patchAlertEmail, FILTER_VALIDATE_EMAIL) || $server->latestPatchRun?->active_target) disabled @endif>Patch now (dry run)</button></form>
+                                <button type="button" class="secondary" disabled title="Requires a tested zero-downtime failover / rolling-patch and rollback runbook">Install patches</button>
+                                <form method="POST" action="{{ route('other-servers.refresh-updates', $server) }}">@csrf<button type="submit" class="secondary" @if(! $server->aws_instance_id) disabled @endif>Refresh update status</button></form>
                                 <form method="POST" action="{{ route('other-servers.rotate-token', $server) }}">@csrf<button type="submit">Rotate token</button></form>
                                 @if(! $server->is_active)
                                     <form method="POST" action="{{ route('other-servers.toggle-active', $server) }}">@csrf<button type="submit" class="secondary">Enable</button></form>
                                 @endif
                             </div>
+                            @if($server->latestPatchRun)
+                                <p class="muted">Dry run #{{ $server->latestPatchRun->id }}: {{ str_replace('_', ' ', $server->latestPatchRun->status) }}</p>
+                            @endif
                             <details style="margin-top:8px;">
                                 <summary class="muted" style="cursor:pointer;">Edit name / hostname / instance ID / AWS role</summary>
                                 <form method="POST" action="{{ route('other-servers.update-details', $server) }}" class="form-grid" style="margin-top:8px;">
@@ -121,6 +127,7 @@
                                     <div><label for="other-server-hostname-{{ $server->id }}">Hostname / EC2 instance</label><input id="other-server-hostname-{{ $server->id }}" name="hostname" placeholder="ec2-54-206-154-130.ap-southeast-2.compute.amazonaws.com" value="{{ old('hostname', $server->hostname) }}"><span class="error">@error('hostname'){{ $message }}@enderror</span></div>
                                     <div><label for="other-server-instance-id-{{ $server->id }}">AWS instance ID</label><input id="other-server-instance-id-{{ $server->id }}" name="awsInstanceId" placeholder="i-0a1b2c3d4e5f6789a" value="{{ old('awsInstanceId', $server->aws_instance_id) }}"><span class="error">@error('awsInstanceId'){{ $message }}@enderror</span></div>
                                     <div><label for="other-server-role-arn-{{ $server->id }}">AWS role ARN (optional, cross-account access)</label><input id="other-server-role-arn-{{ $server->id }}" name="awsRoleArn" maxlength="2048" placeholder="arn:aws:iam::123456789012:role/ServerDashboardSsmAccess" value="{{ old('awsRoleArn', $server->aws_role_arn) }}"><span class="error">@error('awsRoleArn'){{ $message }}@enderror</span></div>
+                                    <div><label for="other-server-critical-services-{{ $server->id }}">Critical service names (comma separated)</label><input id="other-server-critical-services-{{ $server->id }}" name="criticalServices" maxlength="3000" placeholder="nginx, php8.3-fpm, mysql" value="{{ old('criticalServices', $server->critical_services) }}"><span class="error">@error('criticalServices'){{ $message }}@enderror</span></div>
                                     <div style="align-self:end;"><button type="submit" class="secondary">Save</button></div>
                                 </form>
                             </details>
@@ -133,7 +140,57 @@
             </table>
         </div>
         <p class="muted" style="margin-top:10px;">"Test connection" checks whether the saved AWS instance ID is Online in Systems Manager in the configured AWS region. Both SSM buttons assume the saved AWS role when one is set; otherwise they use the dashboard's AWS credentials. The test requires <code>ssm:DescribeInstanceInformation</code> permission, does not use SSH or run commands, and does not verify reporting-agent installation or Run Command permissions.</p>
-        <p class="muted">"Patch now" runs the update-check script immediately via AWS Systems Manager Run Command (no SSH keys stored by the dashboard) instead of waiting for the agent's 3-hour timer. It requires the SSM Agent and an IAM instance profile with Systems Manager access on the target instance, plus an AWS instance ID set above.</p>
+        <p class="notice">Dry-run only. Live installation is blocked pending a tested zero-downtime runbook. A passed dry run is not verified remediation or a full application test.</p>
+        @if(! filter_var($patchAlertEmail, FILTER_VALIDATE_EMAIL))
+            <p class="error" role="alert">Patch alerts are not configured. A valid PATCH_ALERT_EMAIL is required.</p>
+        @else
+            <p class="muted">Failure alert recipient: {{ $patchAlertEmail }}</p>
+        @endif
+    </section>
+
+    <section class="panel content" style="margin-top:14px;">
+        <h2>Patch Dry-Run History</h2>
+        <div class="scroll">
+            <table>
+                <thead><tr><th>Run / target</th><th>Started</th><th>Status</th><th>Alert</th><th>Results</th></tr></thead>
+                <tbody>
+                @forelse($patchRuns as $run)
+                    <tr>
+                        <td><strong>#{{ $run->id }} {{ $run->server_name }}</strong><br>{{ $run->instance_id }}<br>{{ $run->account_id ?? 'Account not verified' }} / {{ $run->region }}</td>
+                        <td>{{ $run->created_at->format('d M Y H:i') }}</td>
+                        <td><span class="badge {{ $run->status === 'failed' ? 'danger' : ($run->status === 'dry_run_passed' ? 'ok' : 'warning') }}">{{ str_replace('_', ' ', $run->status) }}</span></td>
+                        <td>{{ $run->alert_sent_at ? 'Sent to mail transport' : ($run->status === 'failed' ? 'Pending' : 'Not required') }}@if($run->alert_error)<br><span class="error">{{ $run->alert_error }}</span>@endif</td>
+                        <td>
+                            <details>
+                                <summary>View results</summary>
+                                <div style="min-width:260px;max-width:680px;max-height:60vh;overflow:auto;overflow-wrap:anywhere;">
+                                    <p><strong>Critical services:</strong> {{ implode(', ', $run->services) }}</p>
+                                    @if($run->error)<p class="error" role="alert">{{ $run->error }}</p>@endif
+                                    @if($run->plan)
+                                        <p>{{ count($run->plan['findings']) }} active Inspector finding(s). Snapshot: {{ $run->plan['captured_at'] }}</p>
+                                        <p><strong>APT simulation candidates:</strong> {{ implode(', ', $run->plan['packages']) ?: 'None; manual review required' }}</p>
+                                        <p class="muted">Cached repository metadata only. Candidate versions are not verified against Inspector fixes. RPM, Windows, application dependencies, code findings and unavailable fixes require manual remediation planning.</p>
+                                        @foreach($run->plan['findings'] as $finding)
+                                            <p><strong>{{ $finding['severity'] }}: {{ $finding['title'] }}</strong><br>{{ $finding['type'] }}; fix: {{ $finding['fix'] }}</p>
+                                            <ul>
+                                                @foreach($finding['packages'] as $package)
+                                                    <li>{{ $package['name'] }} ({{ $package['manager'] ?? 'Unknown manager' }}): {{ $package['installed'] ?? 'Unknown version' }}; fixed in {{ $package['fixed'] ?? 'Not provided' }}. {{ $package['preview'] ? 'APT simulation candidate' : 'Manual review' }}.</li>
+                                                @endforeach
+                                            </ul>
+                                        @endforeach
+                                    @endif
+                                    @if($run->output)<pre style="white-space:pre-wrap;overflow-wrap:anywhere;">{{ $run->output }}</pre>@endif
+                                </div>
+                            </details>
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="5">No dry runs yet.</td></tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+        {{ $patchRuns->links() }}
     </section>
 
     <section class="panel content" style="margin-top:14px;">

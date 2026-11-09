@@ -4,10 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\OtherServer;
 use App\Models\OtherServerPatchReport;
-use Aws\Credentials\AssumeRoleCredentialProvider;
+use App\Models\OtherServerPatchRun;
+use App\Services\OtherServerAwsClients;
+use App\Services\OtherServerPatchDryRun;
 use Aws\Ssm\Exception\SsmException;
 use Aws\Ssm\SsmClient;
-use Aws\Sts\StsClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -16,7 +17,9 @@ class OtherServerController extends Controller
     public function index()
     {
         return view('other-servers.index', [
-            'otherServers' => OtherServer::query()->orderBy('name')->get(),
+            'otherServers' => OtherServer::query()->with('latestPatchRun')->orderBy('name')->get(),
+            'patchRuns' => OtherServerPatchRun::query()->latest('id')->paginate(10, ['*'], 'patch_runs_page'),
+            'patchAlertEmail' => config('services.patching.alert_email'),
         ]);
     }
 
@@ -27,6 +30,7 @@ class OtherServerController extends Controller
             'hostname' => ['nullable', 'string', 'max:255'],
             'awsInstanceId' => ['nullable', 'string', 'regex:/^i-[0-9a-f]{8,17}$/'],
             'awsRoleArn' => ['nullable', 'string', 'max:2048', 'regex:~^arn:aws:iam::[0-9]{12}:role/(?:[A-Za-z0-9_+=,.@-]+/)*[A-Za-z0-9_+=,.@-]+$~'],
+            'criticalServices' => ['nullable', 'string', 'max:3000', 'regex:/\A\s*[A-Za-z0-9][A-Za-z0-9_.@-]{0,99}(?:[\s,]+[A-Za-z0-9][A-Za-z0-9_.@-]{0,99})*\s*\z/'],
         ]);
 
         $baseSlug = Str::slug($validated['name']) ?: 'server';
@@ -44,6 +48,7 @@ class OtherServerController extends Controller
             'hostname' => $validated['hostname'] ?? null,
             'aws_instance_id' => $validated['awsInstanceId'] ?? null,
             'aws_role_arn' => $validated['awsRoleArn'] ?? null,
+            'critical_services' => $validated['criticalServices'] ?? null,
         ]);
         $server->setMonitoringToken($token);
         $server->save();
@@ -88,6 +93,7 @@ class OtherServerController extends Controller
             'hostname' => ['nullable', 'string', 'max:255'],
             'awsInstanceId' => ['nullable', 'string', 'regex:/^i-[0-9a-f]{8,17}$/'],
             'awsRoleArn' => ['nullable', 'string', 'max:2048', 'regex:~^arn:aws:iam::[0-9]{12}:role/(?:[A-Za-z0-9_+=,.@-]+/)*[A-Za-z0-9_+=,.@-]+$~'],
+            'criticalServices' => ['nullable', 'string', 'max:3000', 'regex:/\A\s*[A-Za-z0-9][A-Za-z0-9_.@-]{0,99}(?:[\s,]+[A-Za-z0-9][A-Za-z0-9_.@-]{0,99})*\s*\z/'],
         ]);
 
         $otherServer->update([
@@ -97,6 +103,9 @@ class OtherServerController extends Controller
             'aws_role_arn' => $request->exists('awsRoleArn')
                 ? ($validated['awsRoleArn'] ?? null)
                 : $otherServer->aws_role_arn,
+            'critical_services' => $request->exists('criticalServices')
+                ? ($validated['criticalServices'] ?? null)
+                : $otherServer->critical_services,
         ]);
 
         return redirect()->route('other-servers.index')
@@ -156,7 +165,7 @@ class OtherServerController extends Controller
      * Trigger an immediate patch/update check on the instance via AWS Systems Manager Run Command.
      * No SSH keys are stored by the dashboard; execution relies on the instance's own SSM Agent and IAM role.
      */
-    public function patchNow(OtherServer $otherServer)
+    public function refreshUpdates(OtherServer $otherServer)
     {
         $instanceId = trim((string) $otherServer->aws_instance_id);
 
@@ -213,28 +222,22 @@ class OtherServerController extends Controller
         }
     }
 
+    public function patchNow(Request $request, OtherServer $otherServer, OtherServerPatchDryRun $dryRuns)
+    {
+        $request->validate(['mode' => ['sometimes', 'required', 'in:dry_run']]);
+
+        try {
+            $run = $dryRuns->enqueue($otherServer);
+
+            return redirect()->route('other-servers.index')->with('status', "Read-only dry run #{$run->id} queued for {$otherServer->name}. Live installation is blocked; no packages will be installed or services restarted.");
+        } catch (\RuntimeException $exception) {
+            return redirect()->route('other-servers.index')->with('error', $exception->getMessage());
+        }
+    }
+
     private function ssmClientFor(OtherServer $otherServer): SsmClient
     {
-        $args = ['version' => 'latest', 'region' => config('services.aws.region')];
-        $roleArn = trim((string) $otherServer->aws_role_arn);
-
-        if ($roleArn !== '') {
-            try {
-                $provider = new AssumeRoleCredentialProvider([
-                    'client' => app(StsClient::class, ['args' => $args]),
-                    'assume_role_params' => [
-                        'RoleArn' => $roleArn,
-                        'RoleSessionName' => 'serverdashboard-' . $otherServer->id,
-                        'DurationSeconds' => 900,
-                    ],
-                ]);
-                $args['credentials'] = $provider()->wait();
-            } catch (\Throwable $exception) {
-                throw new \RuntimeException("Unable to assume AWS role {$roleArn}. Verify the dashboard's sts:AssumeRole permission and the target role's trust policy.", 0, $exception);
-            }
-        }
-
-        return app(SsmClient::class, ['args' => $args]);
+        return app(OtherServerAwsClients::class)->ssm($otherServer);
     }
 
     public function report(Request $request, OtherServer $otherServer)

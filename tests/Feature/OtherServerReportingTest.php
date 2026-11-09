@@ -62,7 +62,7 @@ class OtherServerReportingTest extends TestCase
             $expectedServer = $server;
             $originalAttributes = $server->fresh()->getAttributes();
 
-            foreach (['test-connection', 'patch-now'] as $action) {
+            foreach (['test-connection', 'refresh-updates'] as $action) {
                 $previousStsCalls = $stsCalls;
                 if ($server->aws_role_arn) {
                     $stsHandler->append(new Result(['Credentials' => [
@@ -174,7 +174,7 @@ class OtherServerReportingTest extends TestCase
         $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
         $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
 
-        foreach (['test-connection', 'patch-now'] as $action) {
+        foreach (['test-connection', 'refresh-updates'] as $action) {
             $stsHandler->append(new Result(['Credentials' => [
                 'AccessKeyId' => 'nexus-testing',
                 'SecretAccessKey' => 'nexus-testing-secret',
@@ -219,7 +219,7 @@ class OtherServerReportingTest extends TestCase
         $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
         $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
 
-        foreach (['test-connection', 'patch-now'] as $action) {
+        foreach (['test-connection', 'refresh-updates'] as $action) {
             $handler->append(new StsException('Access denied', new Command('AssumeRole'), ['code' => 'AccessDenied']));
             $this->post(route('other-servers.' . $action, $server))
                 ->assertRedirect(route('other-servers.index'))
@@ -319,7 +319,7 @@ class OtherServerReportingTest extends TestCase
             ->assertSessionHas('status', fn ($message) => str_contains($message, '(Mock mode)')
                 && str_contains($message, 'No AWS access was verified'));
         $this->assertSame($originalAttributes, $server->fresh()->getAttributes());
-        $this->post(route('other-servers.patch-now', $server))
+        $this->post(route('other-servers.refresh-updates', $server))
             ->assertRedirect(route('other-servers.index'))
             ->assertSessionHas('status', fn ($message) => str_contains($message, '(Mock mode)'));
     }
@@ -365,7 +365,7 @@ class OtherServerReportingTest extends TestCase
         $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
         $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
 
-        $this->post(route('other-servers.patch-now', $server))
+        $this->post(route('other-servers.refresh-updates', $server))
             ->assertRedirect(route('other-servers.index'))
             ->assertSessionHas('status', fn ($message) => str_contains($message, 'test-command-id'))
             ->assertSessionMissing('error');
@@ -401,7 +401,7 @@ class OtherServerReportingTest extends TestCase
         $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
         $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
 
-        $this->post(route('other-servers.patch-now', $server))
+        $this->post(route('other-servers.refresh-updates', $server))
             ->assertRedirect(route('other-servers.index'))
             ->assertSessionMissing('status')
             ->assertSessionHas('error', function ($message) {

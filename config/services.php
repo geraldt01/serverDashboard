@@ -48,4 +48,8 @@ return [
         'mock_mode' => env('AWS_SYNC_USE_MOCK', false),
     ],
 
+    'patching' => [
+        'alert_email' => env('PATCH_ALERT_EMAIL'),
+    ],
+
 ];

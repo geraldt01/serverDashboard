@@ -15,6 +15,7 @@ class OtherServer extends Model
         'hostname',
         'aws_instance_id',
         'aws_role_arn',
+        'critical_services',
         'monitor_token_encrypted',
         'is_active',
         'os_name',
@@ -39,6 +40,16 @@ class OtherServer extends Model
     public function patchReports()
     {
         return $this->hasMany(OtherServerPatchReport::class);
+    }
+
+    public function latestPatchRun()
+    {
+        return $this->hasOne(OtherServerPatchRun::class)->latestOfMany();
+    }
+
+    public function criticalServicesList(): array
+    {
+        return array_values(array_unique(preg_split('/[\s,]+/', trim((string) $this->critical_services), -1, PREG_SPLIT_NO_EMPTY)));
     }
 
     public function setMonitoringToken(string $token): void
