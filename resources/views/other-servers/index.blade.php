@@ -45,6 +45,7 @@
             <div><label for="other-server-name">Server name</label><input id="other-server-name" name="name" value="{{ old('name') }}" required><span class="error">@error('name'){{ $message }}@enderror</span></div>
             <div><label for="other-server-hostname">Hostname / EC2 instance (optional)</label><input id="other-server-hostname" name="hostname" placeholder="ec2-54-206-154-130.ap-southeast-2.compute.amazonaws.com" value="{{ old('hostname') }}"><span class="error">@error('hostname'){{ $message }}@enderror</span></div>
             <div><label for="other-server-instance-id">AWS instance ID (optional, enables manual patch)</label><input id="other-server-instance-id" name="awsInstanceId" placeholder="i-0a1b2c3d4e5f6789a" value="{{ old('awsInstanceId') }}"><span class="error">@error('awsInstanceId'){{ $message }}@enderror</span></div>
+            <div><label for="other-server-role-arn">AWS role ARN (optional, cross-account access)</label><input id="other-server-role-arn" name="awsRoleArn" maxlength="2048" placeholder="arn:aws:iam::123456789012:role/ServerDashboardSsmAccess" value="{{ old('awsRoleArn') }}"><span class="error">@error('awsRoleArn'){{ $message }}@enderror</span></div>
             <div style="align-self:end;"><button type="submit">Add server</button></div>
         </form>
     </section>
@@ -113,12 +114,13 @@
                                 @endif
                             </div>
                             <details style="margin-top:8px;">
-                                <summary class="muted" style="cursor:pointer;">Edit name / hostname / instance ID</summary>
+                                <summary class="muted" style="cursor:pointer;">Edit name / hostname / instance ID / AWS role</summary>
                                 <form method="POST" action="{{ route('other-servers.update-details', $server) }}" class="form-grid" style="margin-top:8px;">
                                     @csrf
                                     <div><label for="other-server-name-{{ $server->id }}">Server name</label><input id="other-server-name-{{ $server->id }}" name="name" value="{{ old('name', $server->name) }}" required><span class="error">@error('name'){{ $message }}@enderror</span></div>
                                     <div><label for="other-server-hostname-{{ $server->id }}">Hostname / EC2 instance</label><input id="other-server-hostname-{{ $server->id }}" name="hostname" placeholder="ec2-54-206-154-130.ap-southeast-2.compute.amazonaws.com" value="{{ old('hostname', $server->hostname) }}"><span class="error">@error('hostname'){{ $message }}@enderror</span></div>
                                     <div><label for="other-server-instance-id-{{ $server->id }}">AWS instance ID</label><input id="other-server-instance-id-{{ $server->id }}" name="awsInstanceId" placeholder="i-0a1b2c3d4e5f6789a" value="{{ old('awsInstanceId', $server->aws_instance_id) }}"><span class="error">@error('awsInstanceId'){{ $message }}@enderror</span></div>
+                                    <div><label for="other-server-role-arn-{{ $server->id }}">AWS role ARN (optional, cross-account access)</label><input id="other-server-role-arn-{{ $server->id }}" name="awsRoleArn" maxlength="2048" placeholder="arn:aws:iam::123456789012:role/ServerDashboardSsmAccess" value="{{ old('awsRoleArn', $server->aws_role_arn) }}"><span class="error">@error('awsRoleArn'){{ $message }}@enderror</span></div>
                                     <div style="align-self:end;"><button type="submit" class="secondary">Save</button></div>
                                 </form>
                             </details>
@@ -130,7 +132,7 @@
                 </tbody>
             </table>
         </div>
-        <p class="muted" style="margin-top:10px;">"Test connection" checks whether the saved AWS instance ID is Online in Systems Manager using the dashboard's AWS account and region. It requires <code>ssm:DescribeInstanceInformation</code> permission, does not use SSH or run commands, and does not verify reporting-agent installation or Run Command permissions. Instances in another AWS account require cross-account role access.</p>
+        <p class="muted" style="margin-top:10px;">"Test connection" checks whether the saved AWS instance ID is Online in Systems Manager in the configured AWS region. Both SSM buttons assume the saved AWS role when one is set; otherwise they use the dashboard's AWS credentials. The test requires <code>ssm:DescribeInstanceInformation</code> permission, does not use SSH or run commands, and does not verify reporting-agent installation or Run Command permissions.</p>
         <p class="muted">"Patch now" runs the update-check script immediately via AWS Systems Manager Run Command (no SSH keys stored by the dashboard) instead of waiting for the agent's 3-hour timer. It requires the SSM Agent and an IAM instance profile with Systems Manager access on the target instance, plus an AWS instance ID set above.</p>
     </section>
 

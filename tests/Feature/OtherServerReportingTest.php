@@ -9,12 +9,153 @@ use Aws\MockHandler;
 use Aws\Result;
 use Aws\Ssm\Exception\SsmException;
 use Aws\Ssm\SsmClient;
+use Aws\Sts\Exception\StsException;
+use Aws\Sts\StsClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class OtherServerReportingTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_admin_can_save_validate_and_clear_a_servers_aws_role_arn(): void
+    {
+        $roleArn = 'arn:aws:iam::744763754042:role/ServerDashboardNexusSsm';
+        $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
+        $payload = ['name' => 'Nexus Configapp', 'awsInstanceId' => 'i-08a08aecda290733a', 'awsRoleArn' => $roleArn];
+
+        $this->post(route('other-servers.store'), $payload)->assertRedirect(route('other-servers.index'));
+        $server = OtherServer::where('slug', 'nexus-configapp')->firstOrFail();
+        $this->assertSame($roleArn, $server->aws_role_arn);
+        $token = $server->monitoringToken();
+        $this->get(route('other-servers.index'))->assertOk()
+            ->assertSee('name="awsRoleArn"', false)
+            ->assertSee($roleArn);
+
+        $changedRoleArn = 'arn:aws:iam::744763754042:role/monitoring/NexusAccess';
+        $this->post(route('other-servers.update-details', $server), array_merge($payload, ['awsRoleArn' => $changedRoleArn]))
+            ->assertRedirect(route('other-servers.index'));
+        $this->assertSame($changedRoleArn, $server->fresh()->aws_role_arn);
+
+        unset($payload['awsRoleArn']);
+        $this->post(route('other-servers.update-details', $server), $payload)->assertRedirect(route('other-servers.index'));
+        $this->assertSame($changedRoleArn, $server->fresh()->aws_role_arn);
+
+        foreach (['not-an-arn', 'arn:aws:iam::744763754042:user/Someone', 'arn:aws:iam::123:role/Nexus'] as $invalidArn) {
+            $this->post(route('other-servers.update-details', $server), array_merge($payload, ['awsRoleArn' => $invalidArn]))
+                ->assertSessionHasErrors('awsRoleArn');
+            $this->assertSame($changedRoleArn, $server->fresh()->aws_role_arn);
+            $this->post(route('other-servers.store'), array_merge($payload, ['awsRoleArn' => $invalidArn]))
+                ->assertSessionHasErrors('awsRoleArn');
+            $this->assertSame(1, OtherServer::count());
+        }
+
+        $this->post(route('other-servers.update-details', $server), array_merge($payload, ['awsRoleArn' => '']))
+            ->assertRedirect(route('other-servers.index'));
+        $this->assertNull($server->fresh()->aws_role_arn);
+        $this->assertSame($token, $server->fresh()->monitoringToken());
+    }
+
+    public function test_viewer_cannot_configure_or_use_a_cross_account_role(): void
+    {
+        $server = $this->createServer('Nexus Configapp', 'nexus-configapp', 'nexus-token');
+        $viewer = \App\Models\User::factory()->create(['role' => 'viewer', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $viewer->id])->actingAs($viewer);
+        $payload = ['name' => $server->name, 'awsRoleArn' => 'arn:aws:iam::744763754042:role/ServerDashboardNexusSsm'];
+
+        $this->post(route('other-servers.store'), $payload)->assertForbidden();
+        $this->post(route('other-servers.update-details', $server), $payload)->assertForbidden();
+        $this->post(route('other-servers.test-connection', $server))->assertForbidden();
+        $this->post(route('other-servers.patch-now', $server))->assertForbidden();
+        $this->assertNull($server->fresh()->aws_role_arn);
+    }
+
+    public function test_both_ssm_buttons_use_the_servers_assumed_role_credentials(): void
+    {
+        config(['services.monitoring.mock_mode' => false, 'services.aws.region' => 'ap-southeast-2']);
+        $roleArn = 'arn:aws:iam::744763754042:role/ServerDashboardNexusSsm';
+        $server = $this->createServer('Nexus Configapp', 'nexus-configapp', 'nexus-token', [
+            'aws_instance_id' => 'i-08a08aecda290733a',
+            'aws_role_arn' => $roleArn,
+        ]);
+        $originalAttributes = $server->fresh()->getAttributes();
+        $stsHandler = new MockHandler();
+        $ssmHandler = new MockHandler();
+        $this->app->bind(StsClient::class, function ($app, $parameters) use ($stsHandler) {
+            $this->assertArrayNotHasKey('credentials', $parameters['args']);
+
+            return new StsClient(array_merge($parameters['args'], [
+                'credentials' => ['key' => 'dashboard-testing', 'secret' => 'dashboard-testing'],
+                'handler' => $stsHandler,
+            ]));
+        });
+        $this->app->bind(SsmClient::class, function ($app, $parameters) use ($ssmHandler) {
+            $this->assertSame('nexus-testing', $parameters['args']['credentials']->getAccessKeyId());
+            $this->assertSame('nexus-session-token', $parameters['args']['credentials']->getSecurityToken());
+            $this->assertSame('ap-southeast-2', $parameters['args']['region']);
+
+            return new SsmClient(array_merge($parameters['args'], ['handler' => $ssmHandler]));
+        });
+        $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
+
+        foreach (['test-connection', 'patch-now'] as $action) {
+            $stsHandler->append(new Result(['Credentials' => [
+                'AccessKeyId' => 'nexus-testing',
+                'SecretAccessKey' => 'nexus-testing-secret',
+                'SessionToken' => 'nexus-session-token',
+                'Expiration' => new \DateTimeImmutable('+15 minutes'),
+            ]]));
+            $ssmHandler->append(new Result($action === 'test-connection'
+                ? ['InstanceInformationList' => [['InstanceId' => $server->aws_instance_id, 'PingStatus' => 'Online']]]
+                : ['Command' => ['CommandId' => 'nexus-command-id']]));
+            $this->post(route('other-servers.' . $action, $server))
+                ->assertRedirect(route('other-servers.index'))
+                ->assertSessionHas('status', fn ($message) => str_contains($message, $action === 'test-connection' ? 'is Online' : 'nexus-command-id'));
+
+            $stsCommand = $stsHandler->getLastCommand();
+            $this->assertSame('AssumeRole', $stsCommand->getName());
+            $this->assertSame($roleArn, $stsCommand['RoleArn']);
+            $this->assertSame('serverdashboard-' . $server->id, $stsCommand['RoleSessionName']);
+            $this->assertSame($action === 'test-connection' ? 'DescribeInstanceInformation' : 'SendCommand', $ssmHandler->getLastCommand()->getName());
+            $this->assertSame($originalAttributes, $server->fresh()->getAttributes());
+        }
+    }
+
+    public function test_failed_role_assumption_does_not_fall_back_to_dashboard_credentials(): void
+    {
+        config(['services.monitoring.mock_mode' => false, 'services.aws.region' => 'ap-southeast-2']);
+        $roleArn = 'arn:aws:iam::744763754042:role/ServerDashboardNexusSsm';
+        $server = $this->createServer('Nexus Configapp', 'nexus-configapp', 'nexus-token', [
+            'aws_instance_id' => 'i-08a08aecda290733a',
+            'aws_role_arn' => $roleArn,
+        ]);
+        $originalAttributes = $server->fresh()->getAttributes();
+        $handler = new MockHandler();
+        $this->app->bind(StsClient::class, fn ($app, $parameters) => new StsClient(array_merge($parameters['args'], [
+            'credentials' => ['key' => 'testing', 'secret' => 'testing'],
+            'handler' => $handler,
+        ])));
+        $ssmCalls = 0;
+        $this->app->bind(SsmClient::class, function () use (&$ssmCalls) {
+            $ssmCalls++;
+            throw new \RuntimeException('Unexpected SSM client creation.');
+        });
+        $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
+
+        foreach (['test-connection', 'patch-now'] as $action) {
+            $handler->append(new StsException('Access denied', new Command('AssumeRole'), ['code' => 'AccessDenied']));
+            $this->post(route('other-servers.' . $action, $server))
+                ->assertRedirect(route('other-servers.index'))
+                ->assertSessionHas('error', fn ($message) => str_contains($message, 'Unable to assume AWS role ' . $roleArn)
+                    && str_contains($message, 'sts:AssumeRole'));
+        }
+
+        $this->assertSame(0, $ssmCalls);
+        $this->assertSame($originalAttributes, $server->fresh()->getAttributes());
+    }
 
     public function test_connection_checks_ssm_status_without_a_hostname_or_running_commands(): void
     {
@@ -26,6 +167,7 @@ class OtherServerReportingTest extends TestCase
         $handler = new MockHandler();
         $this->app->bind(SsmClient::class, function ($app, $parameters) use ($handler) {
             $this->assertSame('ap-southeast-2', $parameters['args']['region']);
+            $this->assertArrayNotHasKey('credentials', $parameters['args']);
 
             return new SsmClient(array_merge($parameters['args'], [
                 'credentials' => ['key' => 'testing', 'secret' => 'testing'],
@@ -76,6 +218,9 @@ class OtherServerReportingTest extends TestCase
 
     public function test_connection_requires_an_instance_id_and_mock_mode_does_not_contact_aws(): void
     {
+        $this->app->bind(StsClient::class, function () {
+            $this->fail('Missing instance ID and mock mode must not assume an AWS role.');
+        });
         $this->app->bind(SsmClient::class, function () {
             $this->fail('Missing instance ID and mock mode must not contact AWS.');
         });
@@ -90,13 +235,19 @@ class OtherServerReportingTest extends TestCase
             ->assertSee('Set an AWS instance ID to test SSM access');
 
         config(['services.monitoring.mock_mode' => true]);
-        $server->update(['aws_instance_id' => 'i-0123456789abcdef0']);
+        $server->update([
+            'aws_instance_id' => 'i-0123456789abcdef0',
+            'aws_role_arn' => 'arn:aws:iam::744763754042:role/ServerDashboardNexusSsm',
+        ]);
         $originalAttributes = $server->fresh()->getAttributes();
         $this->post(route('other-servers.test-connection', $server))
             ->assertRedirect(route('other-servers.index'))
             ->assertSessionHas('status', fn ($message) => str_contains($message, '(Mock mode)')
                 && str_contains($message, 'No AWS access was verified'));
         $this->assertSame($originalAttributes, $server->fresh()->getAttributes());
+        $this->post(route('other-servers.patch-now', $server))
+            ->assertRedirect(route('other-servers.index'))
+            ->assertSessionHas('status', fn ($message) => str_contains($message, '(Mock mode)'));
     }
 
     public function test_adding_a_server_does_not_require_aws_ssm(): void

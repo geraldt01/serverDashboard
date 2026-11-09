@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\OtherServer;
 use App\Models\OtherServerPatchReport;
+use Aws\Credentials\AssumeRoleCredentialProvider;
 use Aws\Ssm\Exception\SsmException;
 use Aws\Ssm\SsmClient;
+use Aws\Sts\StsClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -24,6 +26,7 @@ class OtherServerController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'hostname' => ['nullable', 'string', 'max:255'],
             'awsInstanceId' => ['nullable', 'string', 'regex:/^i-[0-9a-f]{8,17}$/'],
+            'awsRoleArn' => ['nullable', 'string', 'max:2048', 'regex:~^arn:aws:iam::[0-9]{12}:role/(?:[A-Za-z0-9_+=,.@-]+/)*[A-Za-z0-9_+=,.@-]+$~'],
         ]);
 
         $baseSlug = Str::slug($validated['name']) ?: 'server';
@@ -40,6 +43,7 @@ class OtherServerController extends Controller
             'slug' => $slug,
             'hostname' => $validated['hostname'] ?? null,
             'aws_instance_id' => $validated['awsInstanceId'] ?? null,
+            'aws_role_arn' => $validated['awsRoleArn'] ?? null,
         ]);
         $server->setMonitoringToken($token);
         $server->save();
@@ -83,12 +87,16 @@ class OtherServerController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'hostname' => ['nullable', 'string', 'max:255'],
             'awsInstanceId' => ['nullable', 'string', 'regex:/^i-[0-9a-f]{8,17}$/'],
+            'awsRoleArn' => ['nullable', 'string', 'max:2048', 'regex:~^arn:aws:iam::[0-9]{12}:role/(?:[A-Za-z0-9_+=,.@-]+/)*[A-Za-z0-9_+=,.@-]+$~'],
         ]);
 
         $otherServer->update([
             'name' => $validated['name'],
             'hostname' => $validated['hostname'] ?? null,
             'aws_instance_id' => $validated['awsInstanceId'] ?? null,
+            'aws_role_arn' => $request->exists('awsRoleArn')
+                ? ($validated['awsRoleArn'] ?? null)
+                : $otherServer->aws_role_arn,
         ]);
 
         return redirect()->route('other-servers.index')
@@ -110,9 +118,12 @@ class OtherServerController extends Controller
         }
 
         $region = config('services.aws.region');
+        $awsIdentity = $otherServer->aws_role_arn
+            ? "configured role {$otherServer->aws_role_arn}"
+            : "the dashboard's AWS account";
 
         try {
-            $ssm = app(SsmClient::class, ['args' => ['version' => 'latest', 'region' => $region]]);
+            $ssm = $this->ssmClientFor($otherServer);
             $result = $ssm->describeInstanceInformation([
                 'Filters' => [['Key' => 'InstanceIds', 'Values' => [$instanceId]]],
             ]);
@@ -121,7 +132,7 @@ class OtherServerController extends Controller
 
             if ($instance === null) {
                 return redirect()->route('other-servers.index')
-                    ->with('error', "SSM connection test failed for {$otherServer->name}: instance {$instanceId} is not registered with Systems Manager in {$region} using the dashboard's AWS account. Verify the instance ID, account and region, and the instance's SSM Agent and IAM role. A server in another AWS account requires cross-account role access; scheduled agent reports do not require it.");
+                    ->with('error', "SSM connection test failed for {$otherServer->name}: instance {$instanceId} is not registered with Systems Manager in {$region} using {$awsIdentity}. Verify the instance ID, account and region, and the instance's SSM Agent and IAM role. A server in another AWS account requires cross-account role access; scheduled agent reports do not require it.");
             }
 
             $pingStatus = $instance['PingStatus'] ?? 'Unknown';
@@ -137,7 +148,7 @@ class OtherServerController extends Controller
             report($exception);
 
             return redirect()->route('other-servers.index')
-                ->with('error', "SSM connection test failed for {$otherServer->name} ({$instanceId}, {$region}). Verify the dashboard's AWS credentials and ssm:DescribeInstanceInformation permission: {$exception->getMessage()}");
+                ->with('error', "SSM connection test failed for {$otherServer->name} ({$instanceId}, {$region}) using {$awsIdentity}. Verify AWS credentials, role trust and ssm:DescribeInstanceInformation permission: {$exception->getMessage()}");
         }
     }
 
@@ -171,7 +182,7 @@ class OtherServerController extends Controller
         }
 
         try {
-            $ssm = app(SsmClient::class, ['args' => ['version' => 'latest', 'region' => config('services.aws.region')]]);
+            $ssm = $this->ssmClientFor($otherServer);
             $result = $ssm->sendCommand([
                 'InstanceIds' => [$instanceId],
                 'DocumentName' => 'AWS-RunShellScript',
@@ -189,14 +200,41 @@ class OtherServerController extends Controller
 
             if ($exception instanceof SsmException && $exception->getAwsErrorCode() === 'InvalidInstanceId') {
                 $region = config('services.aws.region');
+                $awsIdentity = $otherServer->aws_role_arn
+                    ? "configured role {$otherServer->aws_role_arn}"
+                    : "the dashboard's AWS account";
 
                 return redirect()->route('other-servers.index')
-                    ->with('error', "Patch check could not run for {$otherServer->name}: AWS Systems Manager cannot target instance {$instanceId} in {$region} using the dashboard's AWS account. The server remains registered. Verify the instance ID, AWS account and AWS_DEFAULT_REGION; confirm the instance is running and appears Online in Systems Manager Managed nodes in that account and region. Check that the SSM Agent is running, the instance IAM role includes AmazonSSMManagedInstanceCore, and outbound HTTPS access to Systems Manager is available. The ServerDashboard reporting agent must also be installed; its scheduled reports do not require SSM.");
+                    ->with('error', "Patch check could not run for {$otherServer->name}: AWS Systems Manager cannot target instance {$instanceId} in {$region} using {$awsIdentity}. The server remains registered. Verify the instance ID, AWS account and AWS_DEFAULT_REGION; confirm the instance is running and appears Online in Systems Manager Managed nodes in that account and region. Check that the SSM Agent is running, the instance IAM role includes AmazonSSMManagedInstanceCore, and outbound HTTPS access to Systems Manager is available. The ServerDashboard reporting agent must also be installed; its scheduled reports do not require SSM.");
             }
 
             return redirect()->route('other-servers.index')
                 ->with('error', "Failed to trigger patch check for {$otherServer->name}: {$exception->getMessage()}");
         }
+    }
+
+    private function ssmClientFor(OtherServer $otherServer): SsmClient
+    {
+        $args = ['version' => 'latest', 'region' => config('services.aws.region')];
+        $roleArn = trim((string) $otherServer->aws_role_arn);
+
+        if ($roleArn !== '') {
+            try {
+                $provider = new AssumeRoleCredentialProvider([
+                    'client' => app(StsClient::class, ['args' => $args]),
+                    'assume_role_params' => [
+                        'RoleArn' => $roleArn,
+                        'RoleSessionName' => 'serverdashboard-' . $otherServer->id,
+                        'DurationSeconds' => 900,
+                    ],
+                ]);
+                $args['credentials'] = $provider()->wait();
+            } catch (\Throwable $exception) {
+                throw new \RuntimeException("Unable to assume AWS role {$roleArn}. Verify the dashboard's sts:AssumeRole permission and the target role's trust policy.", 0, $exception);
+            }
+        }
+
+        return app(SsmClient::class, ['args' => $args]);
     }
 
     public function report(Request $request, OtherServer $otherServer)

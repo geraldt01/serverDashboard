@@ -14,6 +14,7 @@ class OtherServer extends Model
         'slug',
         'hostname',
         'aws_instance_id',
+        'aws_role_arn',
         'monitor_token_encrypted',
         'is_active',
         'os_name',
