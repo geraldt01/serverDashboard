@@ -27,6 +27,7 @@
     </header>
 
     @if(session('status'))<div class="notice">{{ session('status') }}</div>@endif
+    @if(session('error'))<div class="error" role="alert">{{ session('error') }}</div>@endif
     @if(session('otherServerCredentials'))
         <section class="panel content" style="margin:16px 0;border-color:#b66a00;">
             <h2>Copy Agent Credentials Now</h2>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\OtherServer;
 use App\Models\OtherServerPatchReport;
+use Aws\Ssm\Exception\SsmException;
 use Aws\Ssm\SsmClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -161,7 +162,7 @@ class OtherServerController extends Controller
         }
 
         try {
-            $ssm = new SsmClient(['version' => 'latest', 'region' => config('services.aws.region')]);
+            $ssm = app(SsmClient::class, ['args' => ['version' => 'latest', 'region' => config('services.aws.region')]]);
             $result = $ssm->sendCommand([
                 'InstanceIds' => [$instanceId],
                 'DocumentName' => 'AWS-RunShellScript',
@@ -177,8 +178,15 @@ class OtherServerController extends Controller
         } catch (\Throwable $exception) {
             report($exception);
 
+            if ($exception instanceof SsmException && $exception->getAwsErrorCode() === 'InvalidInstanceId') {
+                $region = config('services.aws.region');
+
+                return redirect()->route('other-servers.index')
+                    ->with('error', "Patch check could not run for {$otherServer->name}: AWS Systems Manager cannot target instance {$instanceId} in {$region} using the dashboard's AWS account. The server remains registered. Verify the instance ID, AWS account and AWS_DEFAULT_REGION; confirm the instance is running and appears Online in Systems Manager Managed nodes in that account and region. Check that the SSM Agent is running, the instance IAM role includes AmazonSSMManagedInstanceCore, and outbound HTTPS access to Systems Manager is available. The ServerDashboard reporting agent must also be installed; its scheduled reports do not require SSM.");
+            }
+
             return redirect()->route('other-servers.index')
-                ->with('status', "Failed to trigger patch check for {$otherServer->name}: {$exception->getMessage()}");
+                ->with('error', "Failed to trigger patch check for {$otherServer->name}: {$exception->getMessage()}");
         }
     }
 

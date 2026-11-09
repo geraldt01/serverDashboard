@@ -4,12 +4,111 @@ namespace Tests\Feature;
 
 use App\Models\OtherServer;
 use App\Models\MonthlyReportSetting;
+use Aws\Command;
+use Aws\MockHandler;
+use Aws\Result;
+use Aws\Ssm\Exception\SsmException;
+use Aws\Ssm\SsmClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class OtherServerReportingTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_adding_a_server_does_not_require_aws_ssm(): void
+    {
+        $this->app->bind(SsmClient::class, function () {
+            $this->fail('Registration must not contact AWS SSM.');
+        });
+        $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
+
+        $this->post(route('other-servers.store'), [
+            'name' => 'Nexus Configapp',
+            'awsInstanceId' => 'i-0123456789abcdef0',
+        ])->assertRedirect(route('other-servers.index'))
+            ->assertSessionHas('status')
+            ->assertSessionHas('otherServerCredentials.token')
+            ->assertSessionMissing('error');
+
+        $this->assertDatabaseHas('other_servers', [
+            'name' => 'Nexus Configapp',
+            'aws_instance_id' => 'i-0123456789abcdef0',
+        ]);
+    }
+
+    public function test_patch_check_sends_the_reporting_script_to_the_configured_instance(): void
+    {
+        config(['services.monitoring.mock_mode' => false, 'services.aws.region' => 'ap-southeast-2']);
+        $server = $this->createServer('Nexus Configapp', 'nexus-configapp', 'nexus-token', [
+            'aws_instance_id' => 'i-0123456789abcdef0',
+        ]);
+        $handler = new MockHandler();
+        $handler->append(new Result(['Command' => ['CommandId' => 'test-command-id']]));
+        $this->app->bind(SsmClient::class, function ($app, $parameters) use ($handler) {
+            $this->assertSame('ap-southeast-2', $parameters['args']['region']);
+
+            return new SsmClient(array_merge($parameters['args'], [
+                'credentials' => ['key' => 'testing', 'secret' => 'testing'],
+                'handler' => $handler,
+            ]));
+        });
+        $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
+
+        $this->post(route('other-servers.patch-now', $server))
+            ->assertRedirect(route('other-servers.index'))
+            ->assertSessionHas('status', fn ($message) => str_contains($message, 'test-command-id'))
+            ->assertSessionMissing('error');
+
+        $command = $handler->getLastCommand();
+        $this->assertSame('SendCommand', $command->getName());
+        $this->assertSame([$server->aws_instance_id], $command['InstanceIds']);
+        $this->assertSame('AWS-RunShellScript', $command['DocumentName']);
+        $this->assertSame(['/usr/local/bin/serverdashboard-agent.sh'], $command['Parameters']['commands']);
+        $this->assertNull($server->fresh()->last_reported_at);
+    }
+
+    public function test_invalid_ssm_instance_shows_setup_guidance_without_changing_server_data(): void
+    {
+        config(['services.monitoring.mock_mode' => false, 'services.aws.region' => 'ap-southeast-2']);
+        $server = $this->createServer('Nexus Configapp', 'nexus-configapp', 'nexus-token', [
+            'aws_instance_id' => 'i-0123456789abcdef0',
+            'total_updates' => 7,
+            'security_updates' => 2,
+        ]);
+        $originalAttributes = $server->fresh()->getAttributes();
+        $handler = new MockHandler();
+        $handler->append(new SsmException('Instances not in a valid state for account', new Command('SendCommand'), [
+            'code' => 'InvalidInstanceId',
+        ]));
+        $client = new SsmClient([
+            'version' => 'latest',
+            'region' => 'ap-southeast-2',
+            'credentials' => ['key' => 'testing', 'secret' => 'testing'],
+            'handler' => $handler,
+        ]);
+        $this->app->bind(SsmClient::class, fn () => $client);
+        $admin = \App\Models\User::factory()->create(['role' => 'admin', 'two_factor_confirmed_at' => now()]);
+        $this->withSession(['mfa.verified_user' => $admin->id])->actingAs($admin);
+
+        $this->post(route('other-servers.patch-now', $server))
+            ->assertRedirect(route('other-servers.index'))
+            ->assertSessionMissing('status')
+            ->assertSessionHas('error', function ($message) {
+                return str_contains($message, 'i-0123456789abcdef0')
+                    && str_contains($message, 'ap-southeast-2')
+                    && str_contains($message, 'server remains registered')
+                    && str_contains($message, 'AmazonSSMManagedInstanceCore');
+            });
+
+        $this->assertSame($originalAttributes, $server->fresh()->getAttributes());
+        $this->get(route('other-servers.index'))->assertOk()
+            ->assertSee('role="alert"', false)
+            ->assertSee('Systems Manager Managed nodes')
+            ->assertDontSee('Instances not in a valid state for account');
+    }
 
     public function test_admin_can_permanently_remove_a_registered_server_and_its_history(): void
     {
