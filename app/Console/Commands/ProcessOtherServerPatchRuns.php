@@ -14,7 +14,7 @@ class ProcessOtherServerPatchRuns extends Command
 
     public function handle(OtherServerPatchDryRun $dryRuns): int
     {
-        OtherServerPatchRun::whereIn('status', ['queued', 'preparing', 'running'])->orderBy('id')->chunkById(10, function ($runs) use ($dryRuns) {
+        OtherServerPatchRun::whereIn('status', ['queued', 'preparing', 'running', 'install_queued', 'install_submitting', 'installing', 'post_checking'])->orderBy('id')->chunkById(10, function ($runs) use ($dryRuns) {
             foreach ($runs as $run) {
                 $dryRuns->advance($run);
             }

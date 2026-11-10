@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\OtherServer;
-use App\Models\OtherServerPatchReport;
 use App\Models\OtherServerPatchRun;
+use App\Models\OtherServerPatchReport;
 use App\Services\OtherServerAwsClients;
 use App\Services\OtherServerPatchDryRun;
 use Aws\Ssm\Exception\SsmException;
@@ -230,6 +230,19 @@ class OtherServerController extends Controller
             $run = $dryRuns->enqueue($otherServer);
 
             return redirect()->route('other-servers.index')->with('status', "Read-only dry run #{$run->id} queued for {$otherServer->name}. Live installation is blocked; no packages will be installed or services restarted.");
+        } catch (\RuntimeException $exception) {
+            return redirect()->route('other-servers.index')->with('error', $exception->getMessage());
+        }
+    }
+
+    public function installPatch(Request $request, OtherServerPatchRun $otherServerPatchRun, OtherServerPatchDryRun $dryRuns)
+    {
+        $request->validate(['confirm_installation' => ['required', 'accepted']]);
+
+        try {
+            $dryRuns->requestInstall($otherServerPatchRun, (int) $request->user()->id);
+
+            return redirect()->route('other-servers.index')->with('status', "Patch Manager baseline installation queued for {$otherServerPatchRun->server_name}. It may install additional baseline-approved OS updates and may reboot the server. Configured service checks will run afterward.");
         } catch (\RuntimeException $exception) {
             return redirect()->route('other-servers.index')->with('error', $exception->getMessage());
         }

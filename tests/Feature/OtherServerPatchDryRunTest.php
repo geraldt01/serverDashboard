@@ -158,8 +158,8 @@ class OtherServerPatchDryRunTest extends TestCase
             ->assertSee('dry-run-result-actions', false)
             ->assertSee('dry-run-install-control', false)
             ->assertSee('Install patches</button>', false)
-            ->assertSee('Unavailable until a zero-downtime runbook is tested.')
-            ->assertSee('Live installation remains disabled until a tested zero-downtime runbook exists.', false);
+            ->assertSee('Available only after a passed dry run with fixable OS package findings.')
+            ->assertSee('Installation requires a recent passed dry run with fixable OS package findings.', false);
     }
 
     public function test_viewers_cannot_start_dry_runs_or_edit_critical_services(): void
@@ -341,6 +341,155 @@ class OtherServerPatchDryRunTest extends TestCase
         app(OtherServerPatchDryRun::class)->enqueue($server);
     }
 
+    public function test_install_requires_explicit_confirmation_recent_eligible_dry_run_and_admin(): void
+    {
+        $run = $this->passedInstallableRun();
+        $this->signIn();
+        $this->post(route('other-server-patch-runs.install', $run))->assertSessionHasErrors('confirm_installation');
+        $this->assertSame('dry_run_passed', $run->fresh()->status);
+        $response = $this->post(route('other-server-patch-runs.install', $run), ['confirm_installation' => '1']);
+        $response->assertRedirect(route('other-servers.index'));
+        $this->assertSame('install_queued', $run->fresh()->status, (string) $response->getSession()->get('error'));
+        $response->assertSessionHas('status');
+        $this->assertSame(1, $run->fresh()->install_requested_by);
+        $this->assertNull($this->ssm->getLastCommand());
+
+        $viewerRun = $this->passedInstallableRun();
+        $this->signIn('viewer');
+        $this->post(route('other-server-patch-runs.install', $viewerRun), ['confirm_installation' => '1'])->assertForbidden();
+        $this->assertSame('dry_run_passed', $viewerRun->fresh()->status);
+    }
+
+    public function test_history_offers_install_only_for_passed_runs_with_fixable_package_findings(): void
+    {
+        $run = $this->passedInstallableRun();
+        $this->signIn();
+        $this->get(route('other-servers.index'))->assertOk()
+            ->assertSee(route('other-server-patch-runs.install', $run), false)
+            ->assertSee('AWS baseline scope; may reboot. Post-check covers configured services only.');
+
+        $run->update(['status' => 'failed', 'error' => 'service check failed']);
+        $this->get(route('other-servers.index'))->assertOk()
+            ->assertDontSee(route('other-server-patch-runs.install', $run), false)
+            ->assertSee('Available only after a passed dry run with fixable OS package findings.');
+    }
+
+    public function test_install_flow_uses_patch_manager_reboot_option_then_checks_critical_services(): void
+    {
+        $run = $this->passedInstallableRun();
+        $this->queueInstall($run);
+        $this->installResponses($run);
+
+        $this->artisan('other-servers:process-patch-runs')->assertSuccessful();
+        $run->refresh();
+        $installCommand = $this->ssm->getLastCommand();
+        $this->assertSame('SendCommand', $installCommand->getName());
+        $this->assertSame('AWS-RunPatchBaseline', $installCommand['DocumentName']);
+        $this->assertSame(['Install'], $installCommand['Parameters']['Operation']);
+        $this->assertSame(['RebootIfNeeded'], $installCommand['Parameters']['RebootOption']);
+        $this->assertSame('installing', $run->status);
+        $this->assertNotNull($run->install_command_id);
+        Mail::assertNothingSent();
+
+        $this->ssm->append(new Result(['Status' => 'Success', 'ResponseCode' => 0, 'StandardOutputContent' => 'Patch baseline succeeded']));
+        $this->ssm->append(new Result(['Command' => ['CommandId' => '22345678-1234-1234-1234-123456789012']]));
+        $this->artisan('other-servers:process-patch-runs')->assertSuccessful();
+        $run->refresh();
+        $this->assertSame('post_checking', $run->status);
+        $this->assertSame('AWS-RunShellScript', $this->ssm->getLastCommand()['DocumentName']);
+
+        $this->ssm->append(new Result(['Status' => 'Success', 'ResponseCode' => 0,
+            'StandardOutputContent' => "SD_DRY_RUN_{$run->id}:SERVICE_OK:nginx\nSD_DRY_RUN_{$run->id}:PREVIEW_MANUAL\nSD_DRY_RUN_{$run->id}:DONE\n"]));
+        $this->artisan('other-servers:process-patch-runs')->assertSuccessful();
+        $this->assertSame('install_health_passed', $run->fresh()->status);
+        $this->assertNull($run->fresh()->active_target);
+        Mail::assertNothingSent();
+    }
+
+    public function test_installation_failure_sends_alert_and_is_not_automatically_retried(): void
+    {
+        $run = $this->passedInstallableRun();
+        $this->queueInstall($run);
+        $this->installResponses($run);
+        $this->artisan('other-servers:process-patch-runs')->assertSuccessful();
+        $this->ssm->append(new Result(['Status' => 'Failed', 'ResponseCode' => 1, 'StandardErrorContent' => 'patch baseline failed']));
+        $this->artisan('other-servers:process-patch-runs')->assertSuccessful();
+        $this->assertSame('failed', $run->fresh()->status);
+        $this->assertStringContainsString('may have been partially applied', $run->fresh()->error);
+        Mail::assertSent(OtherServerPatchFailureMail::class, function ($mail) {
+            $this->assertStringContainsString('Patch Manager installation', $mail->run->error);
+            $this->assertStringContainsString('may have been partially applied', $mail->render());
+            $this->assertStringNotContainsString('No packages were installed', $mail->render());
+            return $mail->hasTo('ops@example.com');
+        });
+        $this->artisan('other-servers:process-patch-runs')->assertSuccessful();
+        Mail::assertSent(OtherServerPatchFailureMail::class, 1);
+    }
+
+    public function test_post_install_service_failure_alerts_and_never_marks_health_passed(): void
+    {
+        $run = $this->passedInstallableRun();
+        $this->queueInstall($run);
+        $this->installResponses($run);
+        $this->artisan('other-servers:process-patch-runs')->assertSuccessful();
+        $this->ssm->append(new Result(['Status' => 'Success', 'ResponseCode' => 0]));
+        $this->ssm->append(new Result(['Command' => ['CommandId' => '32345678-1234-1234-1234-123456789012']]));
+        $this->artisan('other-servers:process-patch-runs')->assertSuccessful();
+        $this->ssm->append(new Result(['Status' => 'Failed', 'ResponseCode' => 1,
+            'StandardOutputContent' => "SD_DRY_RUN_{$run->id}:SERVICE_FAIL:nginx\nSD_DRY_RUN_{$run->id}:DONE\n"]));
+        $this->artisan('other-servers:process-patch-runs')->assertSuccessful();
+        $this->assertSame('failed', $run->fresh()->status);
+        $this->assertStringContainsString('installation succeeded, but SSM service check status was Failed', $run->fresh()->error);
+        Mail::assertSent(OtherServerPatchFailureMail::class, fn ($mail) => str_contains($mail->render(), 'Patch Manager command'));
+    }
+
+    public function test_install_rechecks_account_and_stops_before_patching_on_mismatch(): void
+    {
+        $run = $this->passedInstallableRun();
+        $this->queueInstall($run);
+        $this->sts->append(new Result(['Account' => '999999999999']));
+        $this->ssm->append(new Result(['InstanceInformationList' => [[
+            'InstanceId' => $run->instance_id, 'PingStatus' => 'Online', 'PlatformType' => 'Linux',
+        ]]]));
+
+        $this->artisan('other-servers:process-patch-runs')->assertSuccessful();
+        $this->assertSame('failed', $run->fresh()->status);
+        $this->assertNull($run->fresh()->install_command_id);
+        $this->assertNull($this->ssm->getLastCommand());
+        Mail::assertSent(OtherServerPatchFailureMail::class);
+    }
+
+    private function passedInstallableRun(): OtherServerPatchRun
+    {
+        $run = app(OtherServerPatchDryRun::class)->enqueue($this->server());
+        $run->update([
+            'account_id' => '123456789012',
+            'plan' => ['platform' => 'Linux', 'findings' => [[
+                'type' => 'PACKAGE_VULNERABILITY', 'fix' => 'YES', 'severity' => 'HIGH', 'title' => 'CVE-test - libxml2',
+                'packages' => [['name' => 'libxml2', 'manager' => 'DEB', 'installed' => '1.0', 'fixed' => '2.0', 'preview' => true]],
+            ]], 'packages' => ['libxml2'], 'captured_at' => now()->toIso8601String()],
+            'status' => 'dry_run_passed',
+            'completed_at' => now(),
+            'active_target' => null,
+        ]);
+        return $run->fresh();
+    }
+
+    private function queueInstall(OtherServerPatchRun $run): void
+    {
+        $this->signIn();
+        app(OtherServerPatchDryRun::class)->requestInstall($run, (int) auth()->id());
+    }
+
+    private function installResponses(OtherServerPatchRun $run): void
+    {
+        $this->sts->append(new Result(['Account' => '123456789012']));
+        $this->ssm->append(new Result(['InstanceInformationList' => [[
+            'InstanceId' => $run->instance_id, 'PingStatus' => 'Online', 'PlatformType' => 'Linux',
+        ]]]));
+        $this->ssm->append(new Result(['Command' => ['CommandId' => '12345678-1234-1234-1234-123456789012']]));
+    }
+
     private function signIn(string $role = 'admin'): void
     {
         $user = \App\Models\User::factory()->create(['role' => $role, 'two_factor_confirmed_at' => now()]);
@@ -349,9 +498,10 @@ class OtherServerPatchDryRunTest extends TestCase
 
     private function server(): OtherServer
     {
-        $server = new OtherServer(['name' => 'Staging', 'slug' => 'staging', 'aws_instance_id' => 'i-0123456789abcdef0',
-            'critical_services' => 'nginx', 'is_active' => true, 'monitor_token_encrypted' => 'testing']);
-        $server->monitor_token = hash('sha256', 'testing');
+        $token = bin2hex(random_bytes(12));
+        $server = new OtherServer(['name' => 'Staging', 'slug' => 'staging-' . bin2hex(random_bytes(3)), 'aws_instance_id' => 'i-' . bin2hex(random_bytes(8)),
+            'critical_services' => 'nginx', 'is_active' => true, 'monitor_token_encrypted' => $token]);
+        $server->monitor_token = hash('sha256', $token);
         $server->save();
         return $server->fresh();
     }

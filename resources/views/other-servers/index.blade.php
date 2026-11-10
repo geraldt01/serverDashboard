@@ -126,7 +126,6 @@
                             <div class="actions other-server-actions">
                                 <form method="POST" action="{{ route('other-servers.test-connection', $server) }}">@csrf<button type="submit" class="secondary" title="{{ $server->aws_instance_id ? 'Check SSM managed-node status without SSH' : 'Set an AWS instance ID to test SSM access' }}" @if(! $server->aws_instance_id) disabled @endif>Test connection</button></form>
                                 <form method="POST" action="{{ route('other-servers.patch-now', $server) }}">@csrf<input type="hidden" name="mode" value="dry_run"><button type="submit" title="{{ $dryRunBlockers ? implode(' ', $dryRunBlockers) : 'Read-only Inspector plan and critical-service checks; no installation' }}" @if($dryRunBlockers) disabled aria-describedby="dry-run-blockers-{{ $server->id }}" @endif>Patch now (dry run)</button></form>
-                                <button type="button" class="secondary" disabled title="Requires a tested zero-downtime failover / rolling-patch and rollback runbook">Install patches</button>
                                 <form method="POST" action="{{ route('other-servers.refresh-updates', $server) }}">@csrf<button type="submit" class="secondary" @if(! $server->aws_instance_id) disabled @endif>Refresh update status</button></form>
                                 <form method="POST" action="{{ route('other-servers.rotate-token', $server) }}">@csrf<button type="submit">Rotate token</button></form>
                                 @if(! $server->is_active)
@@ -163,7 +162,7 @@
             </table>
         </div>
         <p class="muted" style="margin-top:10px;">"Test connection" checks whether the saved AWS instance ID is Online in Systems Manager in the configured AWS region. Both SSM buttons assume the saved AWS role when one is set; otherwise they use the dashboard's AWS credentials. The test requires <code>ssm:DescribeInstanceInformation</code> permission, does not use SSH or run commands, and does not verify reporting-agent installation or Run Command permissions.</p>
-        <p class="notice">Dry-run only. Live installation is blocked pending a tested zero-downtime runbook. A passed dry run is not verified remediation or a full application test.</p>
+        <p class="notice">Patch installation is available only from a recent passed dry run with fixable package findings. It applies all operating-system patches approved by the AWS Patch Manager baseline, which may include updates beyond Inspector findings and may reboot the server. Afterward, only the configured critical service states are checked; this is not a full application test or proof Inspector findings cleared. Use an approved maintenance window.</p>
         @if(! filter_var($patchAlertEmail, FILTER_VALIDATE_EMAIL))
             <p class="error" role="alert">Patch alerts are not configured. A valid PATCH_ALERT_EMAIL is required.</p>
         @else
@@ -181,7 +180,7 @@
                     <tr>
                         <td><strong>#{{ $run->id }} {{ $run->server_name }}</strong><br>{{ $run->instance_id }}<br>{{ $run->account_id ?? 'Account not verified' }} / {{ $run->region }}</td>
                         <td>{{ $run->created_at->format('d M Y H:i') }}</td>
-                        <td><span class="badge {{ $run->status === 'failed' ? 'danger' : ($run->status === 'dry_run_passed' ? 'ok' : 'warning') }}">{{ str_replace('_', ' ', $run->status) }}</span></td>
+                        <td><span class="badge {{ in_array($run->status, ['failed'], true) ? 'danger' : (in_array($run->status, ['dry_run_passed', 'install_health_passed'], true) ? 'ok' : 'warning') }}">{{ $run->status === 'install_health_passed' ? 'install and service checks passed' : str_replace('_', ' ', $run->status) }}</span></td>
                         <td>{{ $run->alert_sent_at ? 'Sent to mail transport' : ($run->status === 'failed' ? 'Pending' : 'Not required') }}@if($run->alert_error)<br><span class="error">{{ $run->alert_error }}</span>@endif</td>
                         <td>
                             <div class="dry-run-result-actions">
@@ -204,11 +203,23 @@
                                             @endforeach
                                         @endif
                                         @if($run->output)<pre style="white-space:pre-wrap;overflow-wrap:anywhere;">{{ $run->output }}</pre>@endif
+                                        @if($run->install_command_id)<p><strong>Patch Manager command:</strong> {{ $run->install_command_id }}</p>@endif
+                                        @if($run->install_output)<h3>Patch Manager output</h3><pre style="white-space:pre-wrap;overflow-wrap:anywhere;">{{ $run->install_output }}</pre>@endif
+                                        @if($run->health_check_command_id)<p><strong>Post-install service-check command:</strong> {{ $run->health_check_command_id }}</p>@endif
                                     </div>
                                 </details>
                                 <div class="dry-run-install-control">
-                                    <button type="button" class="secondary" disabled aria-describedby="install-blocked-{{ $run->id }}" title="Live installation remains disabled until a tested zero-downtime runbook exists.">Install patches</button>
-                                    <span id="install-blocked-{{ $run->id }}" class="muted">Unavailable until a zero-downtime runbook is tested.</span>
+                                    @if($run->canInstall())
+                                        <form method="POST" action="{{ route('other-server-patch-runs.install', $run) }}" onsubmit="return confirm('Install all patches approved by this account\'s AWS Patch Manager baseline on this server? This can install updates beyond Inspector findings, restart services, and reboot the server. Use an approved maintenance window.');">
+                                            @csrf
+                                            <input type="hidden" name="confirm_installation" value="1">
+                                            <button type="submit" title="Install the AWS-approved OS patch baseline; may reboot the instance">Install patches</button>
+                                        </form>
+                                        <span class="muted">AWS baseline scope; may reboot. Post-check covers configured services only.</span>
+                                    @else
+                                        <button type="button" class="secondary" disabled aria-describedby="install-blocked-{{ $run->id }}" title="Installation requires a recent passed dry run with fixable OS package findings.">Install patches</button>
+                                        <span id="install-blocked-{{ $run->id }}" class="muted">{{ $run->status === 'install_health_passed' ? 'Already installed for this run. Run a fresh dry run before installing again.' : ($run->status === 'dry_run_passed' ? 'No fixable OS package findings in this run.' : 'Available only after a passed dry run with fixable OS package findings.') }}</span>
+                                    @endif
                                 </div>
                             </div>
                         </td>

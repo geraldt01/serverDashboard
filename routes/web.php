@@ -68,6 +68,7 @@ Route::middleware(['auth', EnsureTwoFactorAuthenticated::class])->group(function
     Route::post('/other-servers/{otherServer}/toggle-active', [OtherServerController::class, 'toggleActive'])->middleware('role:admin')->name('other-servers.toggle-active');
     Route::post('/other-servers/{otherServer}/test-connection', [OtherServerController::class, 'testConnection'])->middleware(['role:admin', 'throttle:10,1'])->name('other-servers.test-connection');
     Route::post('/other-servers/{otherServer}/patch-now', [OtherServerController::class, 'patchNow'])->middleware(['role:admin', 'throttle:10,1'])->name('other-servers.patch-now');
+    Route::post('/other-server-patch-runs/{otherServerPatchRun}/install', [OtherServerController::class, 'installPatch'])->middleware(['role:admin', 'throttle:5,1'])->name('other-server-patch-runs.install');
     Route::post('/other-servers/{otherServer}/refresh-updates', [OtherServerController::class, 'refreshUpdates'])->middleware(['role:admin', 'throttle:10,1'])->name('other-servers.refresh-updates');
     Route::post('/other-servers/{otherServer}/update-details', [OtherServerController::class, 'updateDetails'])->middleware('role:admin')->name('other-servers.update-details');
     Route::get('/webpage-checks', [WebpageCheckController::class, 'index'])->middleware('role:admin')->name('webpage-checks.index');
