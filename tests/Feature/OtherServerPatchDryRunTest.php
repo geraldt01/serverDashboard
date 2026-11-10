@@ -156,6 +156,9 @@ class OtherServerPatchDryRunTest extends TestCase
         $this->get(route('other-servers.index'))->assertOk()->assertSee('Live installation is blocked')
             ->assertSee('Patch now (dry run)')->assertSee('Install patches')
             ->assertSee('dry-run-result-actions', false)
+            ->assertSee('dry-run-install-control', false)
+            ->assertSee('Install patches</button>', false)
+            ->assertSee('Unavailable until a zero-downtime runbook is tested.')
             ->assertSee('Live installation remains disabled until a tested zero-downtime runbook exists.', false);
     }
 

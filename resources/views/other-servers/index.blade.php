@@ -10,6 +10,10 @@
         .other-server-actions button:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
         .other-server-actions button:disabled:hover { filter:none; }
         .dry-run-result-actions { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; min-width:250px; }
+        .dry-run-install-control { display:flex; flex-direction:column; align-items:flex-start; gap:4px; max-width:180px; }
+        .dry-run-install-control button:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
+        .dry-run-install-control button:disabled:hover { filter:none; }
+        .dry-run-install-control .muted { font-size:11px; line-height:1.35; }
         button.other-server-details-dialog {
             background:#fff;
             color:var(--ink);
@@ -202,7 +206,10 @@
                                         @if($run->output)<pre style="white-space:pre-wrap;overflow-wrap:anywhere;">{{ $run->output }}</pre>@endif
                                     </div>
                                 </details>
-                                <button type="button" class="secondary" disabled title="Live installation remains disabled until a tested zero-downtime runbook exists.">Install patches</button>
+                                <div class="dry-run-install-control">
+                                    <button type="button" class="secondary" disabled aria-describedby="install-blocked-{{ $run->id }}" title="Live installation remains disabled until a tested zero-downtime runbook exists.">Install patches</button>
+                                    <span id="install-blocked-{{ $run->id }}" class="muted">Unavailable until a zero-downtime runbook is tested.</span>
+                                </div>
                             </div>
                         </td>
                     </tr>
