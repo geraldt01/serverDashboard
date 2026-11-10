@@ -154,7 +154,9 @@ class OtherServerPatchDryRunTest extends TestCase
         $this->assertSame('queued', OtherServerPatchRun::first()->status);
         $this->assertNull($this->ssm->getLastCommand());
         $this->get(route('other-servers.index'))->assertOk()->assertSee('Live installation is blocked')
-            ->assertSee('Patch now (dry run)')->assertSee('Install patches');
+            ->assertSee('Patch now (dry run)')->assertSee('Install patches')
+            ->assertSee('dry-run-result-actions', false)
+            ->assertSee('Live installation remains disabled until a tested zero-downtime runbook exists.', false);
     }
 
     public function test_viewers_cannot_start_dry_runs_or_edit_critical_services(): void

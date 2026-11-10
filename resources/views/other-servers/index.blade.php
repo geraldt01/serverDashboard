@@ -9,6 +9,7 @@
         dialog.other-server-details-dialog .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
         .other-server-actions button:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
         .other-server-actions button:disabled:hover { filter:none; }
+        .dry-run-result-actions { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; min-width:250px; }
         button.other-server-details-dialog {
             background:#fff;
             color:var(--ink);
@@ -179,27 +180,30 @@
                         <td><span class="badge {{ $run->status === 'failed' ? 'danger' : ($run->status === 'dry_run_passed' ? 'ok' : 'warning') }}">{{ str_replace('_', ' ', $run->status) }}</span></td>
                         <td>{{ $run->alert_sent_at ? 'Sent to mail transport' : ($run->status === 'failed' ? 'Pending' : 'Not required') }}@if($run->alert_error)<br><span class="error">{{ $run->alert_error }}</span>@endif</td>
                         <td>
-                            <details>
-                                <summary>View results</summary>
-                                <div style="min-width:260px;max-width:680px;max-height:60vh;overflow:auto;overflow-wrap:anywhere;">
-                                    <p><strong>Critical services:</strong> {{ implode(', ', $run->services) }}</p>
-                                    @if($run->error)<p class="error" role="alert">{{ $run->error }}</p>@endif
-                                    @if($run->plan)
-                                        <p>{{ count($run->plan['findings']) }} active Inspector finding(s). Snapshot: {{ $run->plan['captured_at'] }}</p>
-                                        <p><strong>APT simulation candidates:</strong> {{ implode(', ', $run->plan['packages']) ?: 'None; manual review required' }}</p>
-                                        <p class="muted">Cached repository metadata only. Candidate versions are not verified against Inspector fixes. RPM, Windows, application dependencies, code findings and unavailable fixes require manual remediation planning.</p>
-                                        @foreach($run->plan['findings'] as $finding)
-                                            <p><strong>{{ $finding['severity'] }}: {{ $finding['title'] }}</strong><br>{{ $finding['type'] }}; fix: {{ $finding['fix'] }}</p>
-                                            <ul>
-                                                @foreach($finding['packages'] as $package)
-                                                    <li>{{ $package['name'] }} ({{ $package['manager'] ?? 'Unknown manager' }}): {{ $package['installed'] ?? 'Unknown version' }}; fixed in {{ $package['fixed'] ?? 'Not provided' }}. {{ $package['preview'] ? 'APT simulation candidate' : 'Manual review' }}.</li>
-                                                @endforeach
-                                            </ul>
-                                        @endforeach
-                                    @endif
-                                    @if($run->output)<pre style="white-space:pre-wrap;overflow-wrap:anywhere;">{{ $run->output }}</pre>@endif
-                                </div>
-                            </details>
+                            <div class="dry-run-result-actions">
+                                <details>
+                                    <summary>View results</summary>
+                                    <div style="min-width:260px;max-width:680px;max-height:60vh;overflow:auto;overflow-wrap:anywhere;">
+                                        <p><strong>Critical services:</strong> {{ implode(', ', $run->services) }}</p>
+                                        @if($run->error)<p class="error" role="alert">{{ $run->error }}</p>@endif
+                                        @if($run->plan)
+                                            <p>{{ count($run->plan['findings']) }} active Inspector finding(s). Snapshot: {{ $run->plan['captured_at'] }}</p>
+                                            <p><strong>APT simulation candidates:</strong> {{ implode(', ', $run->plan['packages']) ?: 'None; manual review required' }}</p>
+                                            <p class="muted">Cached repository metadata only. Candidate versions are not verified against Inspector fixes. RPM, Windows, application dependencies, code findings and unavailable fixes require manual remediation planning.</p>
+                                            @foreach($run->plan['findings'] as $finding)
+                                                <p><strong>{{ $finding['severity'] }}: {{ $finding['title'] }}</strong><br>{{ $finding['type'] }}; fix: {{ $finding['fix'] }}</p>
+                                                <ul>
+                                                    @foreach($finding['packages'] as $package)
+                                                        <li>{{ $package['name'] }} ({{ $package['manager'] ?? 'Unknown manager' }}): {{ $package['installed'] ?? 'Unknown version' }}; fixed in {{ $package['fixed'] ?? 'Not provided' }}. {{ $package['preview'] ? 'APT simulation candidate' : 'Manual review' }}.</li>
+                                                    @endforeach
+                                                </ul>
+                                            @endforeach
+                                        @endif
+                                        @if($run->output)<pre style="white-space:pre-wrap;overflow-wrap:anywhere;">{{ $run->output }}</pre>@endif
+                                    </div>
+                                </details>
+                                <button type="button" class="secondary" disabled title="Live installation remains disabled until a tested zero-downtime runbook exists.">Install patches</button>
+                            </div>
                         </td>
                     </tr>
                 @empty
