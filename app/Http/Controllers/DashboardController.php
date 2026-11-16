@@ -51,7 +51,7 @@ class DashboardController extends Controller
             ->orderByDesc('missing_count')
             ->orderBy('instance_name')
             ->get();
-
+ 
         $isAdmin = $request->user()->isAdmin();
 
         $otherServers = OtherServer::query()
